@@ -1,217 +1,205 @@
-##Pendeteksi orang
-##from picamera.array import PiRGBArray
-##from picamera import PiCamera
-import numpy as np
-import cv2 as cv
-import Person
+"""
+Program Utama Pendeteksi dan Penghitung Pengunjung (People Counter)
+menggunakan OpenCV dan Background Subtraction (MOG2).
+"""
+
+import os
 import time
+import cv2 as cv
+import numpy as np
+import Person
 
-try:
-    log = open('log.txt',"w")
-except:
-    print( "Tidak dapat membuka file log")
 
-#Entry and exit counters
-cnt_up   = 0
-cnt_down = 0
+def main():
+    # Path file video sumber dan file log
+    video_source = 'Test Files/3401.avi'
+    log_file_path = 'log.txt'
 
-#Video source
-#cap = cv.VideoCapture(0)
-cap = cv.VideoCapture('Test Files/3401.avi')
-#camera = PiCamera()
-##camera.resolution = (160,120)
-##camera.framerate = 5
-##rawCapture = PiRGBArray(camera, size=(160,120))
-##time.sleep(0.1)
+    if not os.path.exists(video_source):
+        print(f"Peringatan: File video '{video_source}' tidak ditemukan.")
+        print("Silakan sesuaikan variabel 'video_source' dengan path video Anda atau gunakan 0 untuk webcam.")
 
-#Video Properties
-##cap.set(3,160) #Width
-##cap.set(4,120) #Height
+    cap = cv.VideoCapture(video_source)
+    if not cap.isOpened():
+        print(f"Error: Tidak dapat membuka sumber video '{video_source}'.")
+        return
 
-#Print the capture properties to console
-for i in range(19):
-    print( i, cap.get(i))
-
-h = 480
-w = 640
-frameArea = h*w
-areaTH = frameArea/250
-print( 'Area Threshold', areaTH)
-
-#Entry / exit lines
-line_up = int(2*(h/5))
-line_down   = int(3*(h/5))
-
-up_limit =   int(1*(h/5))
-down_limit = int(4*(h/5))
-
-print( "Red line y:",str(line_down))
-print( "Blue line y:", str(line_up))
-line_down_color = (255,0,0)
-line_up_color = (0,0,255)
-pt1 =  [0, line_down];
-pt2 =  [w, line_down];
-pts_L1 = np.array([pt1,pt2], np.int32)
-pts_L1 = pts_L1.reshape((-1,1,2))
-pt3 =  [0, line_up];
-pt4 =  [w, line_up];
-pts_L2 = np.array([pt3,pt4], np.int32)
-pts_L2 = pts_L2.reshape((-1,1,2))
-
-pt5 =  [0, up_limit];
-pt6 =  [w, up_limit];
-pts_L3 = np.array([pt5,pt6], np.int32)
-pts_L3 = pts_L3.reshape((-1,1,2))
-pt7 =  [0, down_limit];
-pt8 =  [w, down_limit];
-pts_L4 = np.array([pt7,pt8], np.int32)
-pts_L4 = pts_L4.reshape((-1,1,2))
-
-#Background subtractor
-fgbg = cv.createBackgroundSubtractorMOG2(detectShadows = True)
-
-#Structuring elements for morphogic filters
-kernelOp = np.ones((3,3),np.uint8)
-kernelOp2 = np.ones((5,5),np.uint8)
-kernelCl = np.ones((11,11),np.uint8)
-
-#Variables
-font = cv.FONT_HERSHEY_SIMPLEX
-persons = []
-max_p_age = 5
-pid = 1
-
-while(cap.isOpened()):
-##for image in camera.capture_continuous(rawCapture, format="bgr", use_video_port=True):
-    #Read an image from the video source
-    ret, frame = cap.read()
-##    frame = image.array
-
-    for i in persons:
-        i.age_one() #age every person one frame
-    #########################
-    #   PRE-PROCESSING      #
-    #########################
-    
-    #Apply background subtraction
-    fgmask = fgbg.apply(frame)
-    fgmask2 = fgbg.apply(frame)
-
-    #Binary to remove shadows (gray color)
+    # Membuka file log untuk mencatat aktivitas
     try:
-        ret,imBin= cv.threshold(fgmask,200,255,cv.THRESH_BINARY)
-        ret,imBin2 = cv.threshold(fgmask2,200,255,cv.THRESH_BINARY)
-        #Opening (erode-> dilate) to remove noise.
-        mask = cv.morphologyEx(imBin, cv.MORPH_OPEN, kernelOp)
-        mask2 = cv.morphologyEx(imBin2, cv.MORPH_OPEN, kernelOp)
-        #Closing (dilate -> erode) to join white regions.
-        mask =  cv.morphologyEx(mask , cv.MORPH_CLOSE, kernelCl)
-        mask2 = cv.morphologyEx(mask2, cv.MORPH_CLOSE, kernelCl)
-    except:
-        print('EOF')
-        print( 'Keluar:',cnt_up)
-        print ('Masuk:',cnt_down)
-        break
-    #################
-    #   CONTOURS   #
-    #################
-    
-    # RETR_EXTERNAL returns only extreme outer flags. All child contours are left behind.
-    contours0, hierarchy = cv.findContours(mask2,cv.RETR_EXTERNAL,cv.CHAIN_APPROX_SIMPLE)
-    for cnt in contours0:
-        area = cv.contourArea(cnt)
-        if area > areaTH:
-            #################
-            #   TRACKING    #
-            #################
-            
-            #Adding conditions for multi-people, screen outputs and inputs are missing.
-            
-            M = cv.moments(cnt)
-            cx = int(M['m10']/M['m00'])
-            cy = int(M['m01']/M['m00'])
-            x,y,w,h = cv.boundingRect(cnt)
+        log = open(log_file_path, "a", encoding="utf-8")
+    except IOError:
+        print(f"Error: Tidak dapat membuka file log '{log_file_path}'.")
+        log = None
 
-            new = True
-            if cy in range(up_limit,down_limit):
-                for i in persons:
-                    if abs(x-i.getX()) <= w and abs(y-i.getY()) <= h:
-                        # the object is close to one that has already been detected before
-                        new = False
-                        i.updateCoords(cx,cy)   #updates coordinates in object and resets age
-                        if i.going_UP(line_down,line_up) == True:
-                            cnt_up += 1;
-                            print( "ID:",i.getId(),'crossed going up at',time.strftime("%c"))
-                            log.write("ID: "+str(i.getId())+' crossed going up at ' + time.strftime("%c") + '\n')
-                        elif i.going_DOWN(line_down,line_up) == True:
-                            cnt_down += 1;
-                            print( "ID:",i.getId(),'crossed going down at',time.strftime("%c"))
-                            log.write("ID: " + str(i.getId()) + ' crossed going down at ' + time.strftime("%c") + '\n')
-                        break
-                    if i.getState() == '1':
-                        if i.getDir() == 'down' and i.getY() > down_limit:
-                            i.setDone()
-                        elif i.getDir() == 'up' and i.getY() < up_limit:
-                            i.setDone()
-                    if i.timedOut():
-                        #remove i from persons list
-                        index = persons.index(i)
-                        persons.pop(index)
-                        del i     #free up i memory
-                if new == True:
-                    p = Person.MyPerson(pid,cx,cy, max_p_age)
-                    persons.append(p)
-                    pid += 1     
-            #################
-            #   DRAWINGS    #
-            #################
-            cv.circle(frame,(cx,cy), 5, (0,0,255), -1)
-            img = cv.rectangle(frame,(x,y),(x+w,y+h),(0,255,0),2)            
-            #cv.drawContours(frame, cnt, -1, (0,255,0), 3)
-            
-    #END for cnt in contours0
-            
-    #########################
-    # DRAWING TRACKS        #
-    #########################
-    for i in persons:
-##        if len(i.getTracks()) >= 2:
-##            pts = np.array(i.getTracks(), np.int32)
-##            pts = pts.reshape((-1,1,2))
-##            frame = cv.polylines(frame,[pts],False,i.getRGB())
-##        if i.getId() == 9:
-##            print str(i.getX()), ',', str(i.getY())
-        cv.putText(frame, str(i.getId()),(i.getX(),i.getY()),font,0.3,i.getRGB(),1,cv.LINE_AA)
-        
-    #################
-    #   IMAGANES    #
-    #################
-    str_up = 'Keluar: '+ str(cnt_up)
-    str_down = 'Masuk: '+ str(cnt_down)
-    frame = cv.polylines(frame,[pts_L1],False,line_down_color,thickness=2)
-    frame = cv.polylines(frame,[pts_L2],False,line_up_color,thickness=2)
-    frame = cv.polylines(frame,[pts_L3],False,(255,255,255),thickness=1)
-    frame = cv.polylines(frame,[pts_L4],False,(255,255,255),thickness=1)
-    cv.putText(frame, str_up ,(10,40),font,0.5,(255,255,255),2,cv.LINE_AA)
-    cv.putText(frame, str_up ,(10,40),font,0.5,(0,0,255),1,cv.LINE_AA)
-    cv.putText(frame, str_down ,(10,90),font,0.5,(255,255,255),2,cv.LINE_AA)
-    cv.putText(frame, str_down ,(10,90),font,0.5,(255,0,0),1,cv.LINE_AA)
+    # Counter penghitung masuk & keluar
+    cnt_up = 0
+    cnt_down = 0
 
-    cv.imshow('Frame',frame)
-    cv.imshow('Mask',mask)    
-    
+    # Dimensi frame dasar
+    h = 480
+    w = 640
+    frame_area = h * w
+    area_th = frame_area / 250
+    print(f"Area Threshold: {area_th}")
 
-##    rawCapture.truncate(0)
-    #press ESC to exit
-    k = cv.waitKey(30) & 0xff
-    if k == 27:
-        break
-#END while(cap.isOpened())
-    
-#################
-#   CLEANING    #
-#################
-log.flush()
-log.close()
-cap.release()
-cv.destroyAllWindows()
+    # Garis batas melintas (Entry & Exit lines)
+    line_up = int(2 * (h / 5))
+    line_down = int(3 * (h / 5))
+
+    up_limit = int(1 * (h / 5))
+    down_limit = int(4 * (h / 5))
+
+    print(f"Garis Merah (Down/Masuk) y: {line_down}")
+    print(f"Garis Biru (Up/Keluar) y  : {line_up}")
+
+    # Titik garis untuk visualisasi di OpenCV
+    pts_l1 = np.array([[0, line_down], [w, line_down]], np.int32).reshape((-1, 1, 2))
+    pts_l2 = np.array([[0, line_up], [w, line_up]], np.int32).reshape((-1, 1, 2))
+    pts_l3 = np.array([[0, up_limit], [w, up_limit]], np.int32).reshape((-1, 1, 2))
+    pts_l4 = np.array([[0, down_limit], [w, down_limit]], np.int32).reshape((-1, 1, 2))
+
+    line_down_color = (255, 0, 0)  # Biru (BGR)
+    line_up_color = (0, 0, 255)    # Merah (BGR)
+
+    # Subtraksi Background & Elemen Morfologi
+    fgbg = cv.createBackgroundSubtractorMOG2(detectShadows=True)
+    kernel_op = np.ones((3, 3), np.uint8)
+    kernel_cl = np.ones((11, 11), np.uint8)
+
+    # Pengaturan Objek Tracking
+    font = cv.FONT_HERSHEY_SIMPLEX
+    persons = []
+    max_p_age = 5
+    pid = 1
+
+    try:
+        while cap.isOpened():
+            ret, frame = cap.read()
+            if not ret or frame is None:
+                print("EOF (End of File) atau pemrosesan video selesai.")
+                break
+
+            # Tambah umur (frame count) setiap person
+            for person in persons:
+                person.age_one()
+
+            # ----------------------------------------------------
+            # PRE-PROCESSING (Background Subtraction & Morphology)
+            # ----------------------------------------------------
+            fgmask = fgbg.apply(frame)
+
+            # Thresholding untuk menghilangkan bayangan
+            _, im_bin = cv.threshold(fgmask, 200, 255, cv.THRESH_BINARY)
+            # Opening (Erosi -> Dilasi) untuk menghilangkan noise
+            mask = cv.morphologyEx(im_bin, cv.MORPH_OPEN, kernel_op)
+            # Closing (Dilasi -> Erosi) untuk menggabungkan area putih
+            mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, kernel_cl)
+
+            # ----------------------------------------------------
+            # DETEKSI KONTUR & TRACKING
+            # ----------------------------------------------------
+            contours0, _ = cv.findContours(mask, cv.RETR_EXTERNAL, cv.CHAIN_APPROX_SIMPLE)
+
+            for cnt in contours0:
+                area = cv.contourArea(cnt)
+                if area > area_th:
+                    m = cv.moments(cnt)
+                    if m['m00'] == 0:
+                        continue
+                    cx = int(m['m10'] / m['m00'])
+                    cy = int(m['m01'] / m['m00'])
+                    x, y, bw, bh = cv.boundingRect(cnt)
+
+                    new_person = True
+                    if up_limit <= cy <= down_limit:
+                        for person in persons:
+                            if abs(cx - person.getX()) <= bw and abs(cy - person.getY()) <= bh:
+                                new_person = False
+                                person.updateCoords(cx, cy)
+
+                                # Cek pergerakan ke atas (Keluar)
+                                if person.going_UP(line_down, line_up):
+                                    cnt_up += 1
+                                    timestamp = time.strftime("%c")
+                                    log_msg = f"ID: {person.getId()} crossed going up at {timestamp}"
+                                    print(log_msg)
+                                    if log:
+                                        log.write(log_msg + '\n')
+
+                                # Cek pergerakan ke bawah (Masuk)
+                                elif person.going_DOWN(line_down, line_up):
+                                    cnt_down += 1
+                                    timestamp = time.strftime("%c")
+                                    log_msg = f"ID: {person.getId()} crossed going down at {timestamp}"
+                                    print(log_msg)
+                                    if log:
+                                        log.write(log_msg + '\n')
+                                break
+
+                        if new_person:
+                            p = Person.MyPerson(pid, cx, cy, max_p_age)
+                            persons.append(p)
+                            pid += 1
+
+                    # Visualisasi penanda objek
+                    cv.circle(frame, (cx, cy), 5, (0, 0, 255), -1)
+                    cv.rectangle(frame, (x, y), (x + bw, y + bh), (0, 255, 0), 2)
+
+            # ----------------------------------------------------
+            # EVALUASI STATUS & CLEANUP PERSON EXPIRED
+            # ----------------------------------------------------
+            for person in persons:
+                if person.getState() == '1':
+                    if person.getDir() == 'down' and person.getY() > down_limit:
+                        person.setDone()
+                    elif person.getDir() == 'up' and person.getY() < up_limit:
+                        person.setDone()
+
+                # Tampilkan ID objek pada frame
+                cv.putText(frame, str(person.getId()), (person.getX(), person.getY()),
+                           font, 0.4, person.getRGB(), 1, cv.LINE_AA)
+
+            # Filter aman untuk menghapus person yang timed out / done
+            persons = [p for p in persons if not p.timedOut()]
+
+            # ----------------------------------------------------
+            # VISUALISASI GARIS DAN TEKS COUNTER
+            # ----------------------------------------------------
+            str_up = f"Keluar: {cnt_up}"
+            str_down = f"Masuk: {cnt_down}"
+
+            cv.polylines(frame, [pts_l1], False, line_down_color, thickness=2)
+            cv.polylines(frame, [pts_l2], False, line_up_color, thickness=2)
+            cv.polylines(frame, [pts_l3], False, (255, 255, 255), thickness=1)
+            cv.polylines(frame, [pts_l4], False, (255, 255, 255), thickness=1)
+
+            # Outline teks untuk keterbacaan yang lebih baik
+            cv.putText(frame, str_up, (10, 40), font, 0.6, (0, 0, 0), 3, cv.LINE_AA)
+            cv.putText(frame, str_up, (10, 40), font, 0.6, (0, 0, 255), 1, cv.LINE_AA)
+            cv.putText(frame, str_down, (10, 90), font, 0.6, (0, 0, 0), 3, cv.LINE_AA)
+            cv.putText(frame, str_down, (10, 90), font, 0.6, (255, 0, 0), 1, cv.LINE_AA)
+
+            cv.imshow('Frame Utama', frame)
+            cv.imshow('Masking', mask)
+
+            # Keluar jika menekan tombol ESC (ASCII 27)
+            k = cv.waitKey(30) & 0xFF
+            if k == 27:
+                print("Program dihentikan oleh pengguna.")
+                break
+
+    finally:
+        print("\n=== Ringkasan Hasil ===")
+        print(f"Keluar: {cnt_up}")
+        print(f"Masuk : {cnt_down}")
+
+        if log:
+            log.flush()
+            log.close()
+
+        cap.release()
+        cv.destroyAllWindows()
+
+
+if __name__ == '__main__':
+    main()
