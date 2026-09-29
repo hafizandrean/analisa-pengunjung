@@ -12,7 +12,9 @@ import Person
 
 def main():
     # Path file video sumber dan file log
-    video_source = 'Test Files/3401.avi'
+    video_source = 'video sample.mp4'
+    if not os.path.exists(video_source):
+        video_source = 'Test Files/3401.avi'
     log_file_path = 'log.txt'
 
     if not os.path.exists(video_source):
@@ -76,8 +78,12 @@ def main():
         while cap.isOpened():
             ret, frame = cap.read()
             if not ret or frame is None:
-                print("EOF (End of File) atau pemrosesan video selesai.")
-                break
+                # Video selesai, reset kembali ke frame awal (looping)
+                cap.set(cv.CAP_PROP_POS_FRAMES, 0)
+                ret, frame = cap.read()
+                if not ret or frame is None:
+                    print("EOF (End of File) atau pemrosesan video selesai.")
+                    break
 
             # Tambah umur (frame count) setiap person
             for person in persons:
