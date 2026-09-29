@@ -1,0 +1,7 @@
+ID: 1 crossed going up at Sat Jun 26 19:25:35 2021
+ID: 3 crossed going down at Sat Jun 26 19:26:02 2021
+ID: 8 crossed going down at Sat Jun 26 19:26:09 2021
+ID: 12 crossed going down at Sat Jun 26 19:26:12 2021
+ID: 12 crossed going up at Sat Jun 26 19:26:23 2021
+ID: 14 crossed going up at Sat Jun 26 19:26:40 2021
+ID: 15 crossed going up at Sat Jun 26 19:26:46 2021
