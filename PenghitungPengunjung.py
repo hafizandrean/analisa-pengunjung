@@ -13,8 +13,6 @@ import Person
 def main():
     # Path file video sumber dan file log
     video_source = 'video sample.mp4'
-    if not os.path.exists(video_source):
-        video_source = 'Test Files/3401.avi'
     log_file_path = 'log.txt'
 
     if not os.path.exists(video_source):
@@ -64,9 +62,9 @@ def main():
     line_up_color = (0, 0, 255)    # Merah (BGR)
 
     # Subtraksi Background & Elemen Morfologi
-    fgbg = cv.createBackgroundSubtractorMOG2(detectShadows=True)
+    fgbg = cv.createBackgroundSubtractorMOG2(history=500, varThreshold=16, detectShadows=True)
     kernel_op = np.ones((3, 3), np.uint8)
-    kernel_cl = np.ones((11, 11), np.uint8)
+    kernel_cl = np.ones((15, 15), np.uint8)  # Diperbesar dari 11x11 ke 15x15 untuk menyambungkan siluet terpecah
 
     # Pengaturan Objek Tracking
     font = cv.FONT_HERSHEY_SIMPLEX
@@ -94,11 +92,11 @@ def main():
             # ----------------------------------------------------
             fgmask = fgbg.apply(frame)
 
-            # Thresholding untuk menghilangkan bayangan
-            _, im_bin = cv.threshold(fgmask, 200, 255, cv.THRESH_BINARY)
+            # Thresholding 180 (diturunkan dari 200 agar bagian tubuh/baju gelap tidak terpotong)
+            _, im_bin = cv.threshold(fgmask, 180, 255, cv.THRESH_BINARY)
             # Opening (Erosi -> Dilasi) untuk menghilangkan noise
             mask = cv.morphologyEx(im_bin, cv.MORPH_OPEN, kernel_op)
-            # Closing (Dilasi -> Erosi) untuk menggabungkan area putih
+            # Closing (Dilasi -> Erosi) untuk menggabungkan potongan siluet menjadi 1 objek padat
             mask = cv.morphologyEx(mask, cv.MORPH_CLOSE, kernel_cl)
 
             # ----------------------------------------------------
