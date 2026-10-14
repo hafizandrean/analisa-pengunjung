@@ -1,0 +1,9 @@
+# ByteTrack Custom Configuration - Ayam Bang Jungko Foot Traffic
+# Dioptimalkan untuk meminimalkan occlusion ID switch dan mencapai akurasi >= 95%
+tracker_type: bytetrack
+track_high_thresh: 0.40  # Ambang deteksi tahap 1
+track_low_thresh: 0.15   # Ambang deteksi tahap 2 untuk mendeteksi orang yang sebagian terhalang (occlusion)
+new_track_thresh: 0.50   # Ambang batas inisialisasi track baru
+track_buffer: 50         # Mempertahankan objek yang hilang sejenak hingga 50 frame (~1.6 detik)
+match_thresh: 0.75       # Ambang kecocokan IoU untuk mencegah pertukaran ID antar orang yang berdekatan
+fuse_score: True         # Menggabungkan skor deteksi dengan skor asosiasi
