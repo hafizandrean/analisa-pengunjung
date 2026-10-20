@@ -1,5 +1,7 @@
 import os
 import time
+import json
+import sqlite3
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 import cv2
@@ -9,19 +11,24 @@ from vision.config import VisionWorkerConfig
 from vision.tracker import ByteTrackTracker
 from vision.line_crossing import VirtualCountingLine
 from vision.event_dispatcher import BackendEventDispatcher
+from vision.stream_server import VideoStreamServer, GLOBAL_FRAME_BUFFER
 
 
 class VisionWorker:
     """
     Worker pipeline pemrosesan video computer vision untuk sistem Ayam Bang Jungko:
-    - Input: File video rekaman atau stream RTSP
+    - Input: File video rekaman, webcam lokal, atau stream RTSP
     - Deteksi & Tracking: YOLOv8n + ByteTrack
-    - Virtual Line Crossing: Evaluasi perpotongan garis & arah IN/OUT
-    - Dispatcher: Pengiriman event asinkron ke REST API backend
+    - Virtual Line Crossing: Evaluasi perpotongan garis & arah IN/OUT dengan cooldown
+    - Stream Server: HTTP MJPEG server untuk live feed video di dashboard web
+    - Dispatcher: Pengiriman event asinkron ke REST API backend PHP Native
+    - Sinkronisasi Dinamis: Membaca perubahan koordinat garis dari database secara real-time
     """
 
     def __init__(self, config: VisionWorkerConfig):
         self.config = config
+        self.db_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "database", "analisa_pengunjung.sqlite"))
+
         self.tracker = ByteTrackTracker(
             model_path=config.model_path,
             tracker_config=config.tracker_type,
@@ -31,13 +38,22 @@ class VisionWorker:
 
         lc = config.line_coords
         self.line = VirtualCountingLine(
-            pt1=(lc.get("x1", 40), lc.get("y1", 184)),
-            pt2=(lc.get("x2", 440), lc.get("y2", 184)),
+            pt1=(lc.get("x1", 120), lc.get("y1", 380)),
+            pt2=(lc.get("x2", 1160), lc.get("y2", 380)),
             direction_in=lc.get("direction_in", "down"),
-            offset=lc.get("offset", 25)
+            offset=lc.get("offset", 35)
         )
 
+        # Muat koordinat terbaru dari database jika tersedia
+        self._load_line_coords_from_db()
+
         self.dispatcher = BackendEventDispatcher(api_base_url=config.backend_api_url)
+
+        # Server HTTP MJPEG Streaming untuk Browser
+        self.stream_server = None
+        if config.enable_stream:
+            self.stream_server = VideoStreamServer(port=config.stream_port)
+            self.stream_server.start()
 
         # Metrik lokal sesi
         self.total_in = 0
@@ -46,58 +62,114 @@ class VisionWorker:
         self.start_time: Optional[float] = None
         self.is_running = False
 
+    def _load_line_coords_from_db(self, actual_w: int = 1280, actual_h: int = 720):
+        """Memuat atau memperbarui koordinat garis virtual dari database SQLite dan menyesuaikan ke resolusi video."""
+        if not os.path.exists(self.db_path):
+            return
+
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            cursor = conn.cursor()
+            cursor.execute("SELECT line_coords FROM cameras WHERE id = ?", (self.config.camera_id,))
+            row = cursor.fetchone()
+            conn.close()
+
+            if row and row[0]:
+                coords = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+                
+                # Skala dari resolusi acuan web UI (1280x720) ke resolusi video aktual
+                scale_x = actual_w / 1280.0
+                scale_y = actual_h / 720.0
+                
+                pt1 = (int(coords.get("x1", 120) * scale_x), int(coords.get("y1", 380) * scale_y))
+                pt2 = (int(coords.get("x2", 1160) * scale_x), int(coords.get("y2", 380) * scale_y))
+                direction_in = coords.get("direction_in", "down")
+                offset = max(15, int(coords.get("offset", 35) * scale_y))
+
+                if (self.line.x1, self.line.y1, self.line.x2, self.line.y2, self.line.direction_in) != (pt1[0], pt1[1], pt2[0], pt2[1], direction_in):
+                    self.line.update_coordinates(pt1=pt1, pt2=pt2, direction_in=direction_in, offset=offset)
+                    print(f"[VisionWorker] Sinkronisasi koordinat garis ({actual_w}x{actual_h}): P1={pt1}, P2={pt2}, Arah={direction_in}")
+        except Exception as e:
+            pass
+
     def run(self) -> Dict[str, Any]:
         """Menjalankan loop pemrosesan video live stream atau kamera webcam."""
         source_input = self.config.video_source
         is_device_index = source_input.isdigit() if isinstance(source_input, str) else isinstance(source_input, int)
         is_stream = isinstance(source_input, str) and (source_input.startswith("rtsp://") or source_input.startswith("http://") or source_input.startswith("https://"))
 
-        if is_device_index:
-            dev_idx = int(source_input)
-            backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
-            cap = cv2.VideoCapture(dev_idx, backend)
-        elif is_stream:
-            cap = cv2.VideoCapture(source_input, cv2.CAP_FFMPEG)
-        else:
-            if not os.path.exists(source_input):
-                raise FileNotFoundError(f"Sumber video tidak ditemukan: {source_input}")
-            cap = cv2.VideoCapture(source_input)
+        reconnect_delay = 2.0
+        max_reconnect_delay = 30.0
 
-        if not cap.isOpened():
+        def open_capture():
+            if is_device_index:
+                backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
+                c = cv2.VideoCapture(int(source_input), backend)
+            elif is_stream:
+                c = cv2.VideoCapture(source_input, cv2.CAP_FFMPEG)
+            else:
+                if not os.path.exists(source_input):
+                    raise FileNotFoundError(f"Sumber video tidak ditemukan: {source_input}")
+                c = cv2.VideoCapture(source_input)
+            return c
+
+        cap = open_capture()
+        if not cap.isOpened() and not is_stream:
             raise RuntimeError(f"Gagal membuka sumber video: {self.config.video_source}")
 
-        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
-        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+        width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH)) or 1280
+        height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT)) or 720
         fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
         total_video_frames = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
 
+        self._load_line_coords_from_db(width, height)
         print(f"[VisionWorker] Memulai pemrosesan video: {width}x{height} @ {fps:.1f} FPS, Total: {total_video_frames} frames")
-        print(f"[VisionWorker] Garis Virtual: ({self.line.x1}, {self.line.y1}) -> ({self.line.x2}, {self.line.y2}), Arah Masuk: {self.line.direction_in}")
+        print(f"[VisionWorker] Garis Virtual Aktif: ({self.line.x1}, {self.line.y1}) -> ({self.line.x2}, {self.line.y2}), Arah Masuk: {self.line.direction_in}")
 
         self.is_running = True
         self.start_time = time.time()
         flash_counter = 0
+        last_fps_calc = time.time()
+        fps_frame_count = 0
+        current_fps = fps
 
         if self.config.start_frame > 0:
             cap.set(cv2.CAP_PROP_POS_FRAMES, self.config.start_frame)
             self.frames_processed = self.config.start_frame
-            print(f"[VisionWorker] Melompat ke frame awal: {self.config.start_frame}")
 
         processed_in_this_run = 0
 
         try:
             while self.is_running:
                 ret, frame = cap.read()
+
+                # Penanganan akhir video atau terputus
                 if not ret or frame is None:
-                    if self.config.loop_video:
+                    if is_stream and self.config.auto_reconnect:
+                        print(f"[VisionWorker] Sambungan stream RTSP terputus. Mencoba reconnect dalam {reconnect_delay:.1f} detik...")
+                        cap.release()
+                        time.sleep(reconnect_delay)
+                        reconnect_delay = min(reconnect_delay * 1.5, max_reconnect_delay)
+                        cap = open_capture()
+                        continue
+                    elif self.config.loop_video:
                         cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         continue
                     else:
                         print("[VisionWorker] Akhir berkas video tercapai (EOF).")
                         break
 
+                reconnect_delay = 2.0
                 self.frames_processed += 1
                 processed_in_this_run += 1
+                fps_frame_count += 1
+
+                # Hitung estimasi real FPS
+                now_time = time.time()
+                if now_time - last_fps_calc >= 1.0:
+                    current_fps = fps_frame_count / (now_time - last_fps_calc)
+                    fps_frame_count = 0
+                    last_fps_calc = now_time
 
                 # 1. Jalankan tracking objek (YOLOv8 + ByteTrack)
                 tracks = self.tracker.track(frame)
@@ -120,7 +192,7 @@ class VisionWorker:
 
                     if crossing_dir:
                         new_crossing = True
-                        flash_counter = 10
+                        flash_counter = 12
                         now_iso = datetime.now(timezone.utc).isoformat()
 
                         if crossing_dir == "IN":
@@ -128,9 +200,9 @@ class VisionWorker:
                         elif crossing_dir == "OUT":
                             self.total_out += 1
 
-                        print(f"[VisionWorker] DETEKSI: Person #{track_id} melintas {crossing_dir} pada frame {self.frames_processed}")
+                        print(f"[VisionWorker] DETEKSI: Pengunjung #{track_id} melintas {crossing_dir} (Total Masuk: {self.total_in}, Keluar: {self.total_out})")
 
-                        # Kirim event ke backend REST API
+                        # Kirim event ke backend REST API PHP Native
                         self.dispatcher.dispatch(
                             camera_id=self.config.camera_id,
                             session_id=self.config.session_id,
@@ -143,23 +215,41 @@ class VisionWorker:
                             metadata={
                                 "frame_number": self.frames_processed,
                                 "bbox": t["bbox"],
-                                "fps": round(fps, 2)
+                                "fps": round(current_fps, 2)
                             }
                         )
 
-                # Pembersihan memori jejak lama
+                # Pembersihan memori jejak lama & sinkronisasi koordinat garis berkala
                 if self.frames_processed % 30 == 0:
                     self.line.cleanup_old_tracks(active_ids)
+                    self._load_line_coords_from_db(width, height)
 
-                # 3. Visual Annotations (jika preview diaktifkan)
+                # 3. Anotasi visual untuk streaming browser dan preview
+                annotated_frame = frame.copy()
+                self._draw_annotations(annotated_frame, tracks, flash_counter > 0, current_fps)
+                if flash_counter > 0:
+                    flash_counter -= 1
+
+                # Update live MJPEG frame buffer untuk browser web (cameras.php & index.php)
+                if self.config.enable_stream:
+                    GLOBAL_FRAME_BUFFER.update(
+                        annotated_frame,
+                        stats={
+                            "status": "running",
+                            "camera_id": self.config.camera_id,
+                            "total_in": self.total_in,
+                            "total_out": self.total_out,
+                            "fps": round(current_fps, 1),
+                            "frame_number": self.frames_processed
+                        },
+                        quality=65
+                    )
+
+                # Pratinjau jendela OpenCV lokal jika diaktifkan
                 if self.config.show_preview:
-                    self._draw_annotations(frame, tracks, flash_counter > 0)
-                    if flash_counter > 0:
-                        flash_counter -= 1
-
-                    cv2.imshow("Ayam Bang Jungko - CCTV Analytics", frame)
+                    cv2.imshow("Ayam Bang Jungko - CCTV Analytics", annotated_frame)
                     key = cv2.waitKey(1) & 0xFF
-                    if key in [ord("q"), 27]:  # 'q' atau ESC
+                    if key in [ord("q"), 27]:
                         print("[VisionWorker] Pengguna menghentikan pemrosesan.")
                         break
 
@@ -172,6 +262,8 @@ class VisionWorker:
             if self.config.show_preview:
                 cv2.destroyAllWindows()
             self.dispatcher.stop()
+            if self.stream_server:
+                self.stream_server.stop()
 
         elapsed = time.time() - (self.start_time or time.time())
         avg_fps = self.frames_processed / max(elapsed, 0.001)
@@ -195,10 +287,10 @@ class VisionWorker:
 
         return result_summary
 
-    def _draw_annotations(self, frame: np.ndarray, tracks: list, is_crossing: bool):
-        """Menggambar visualisasi deteksi, garis, dan metrik pada frame."""
-        # Garis virtual (Merah/Kuning saat crossing)
-        line_color = (0, 255, 255) if is_crossing else (0, 0, 255)
+    def _draw_annotations(self, frame: np.ndarray, tracks: list, is_crossing: bool, current_fps: float):
+        """Menggambar visualisasi deteksi, garis virtual, dan HUD metrik pada frame."""
+        # Garis virtual (Kuning terang saat ada yang melintas, Oranye saat standby)
+        line_color = (0, 255, 255) if is_crossing else (22, 115, 249)  # BGR
         cv2.line(
             frame,
             (self.line.x1, self.line.y1),
@@ -207,45 +299,59 @@ class VisionWorker:
             3
         )
 
-        # Toleransi buffer zone (garis tipis)
+        # Handle titik ujung garis P1 & P2
+        cv2.circle(frame, (self.line.x1, self.line.y1), 7, (16, 185, 129), -1)  # Emerald P1
+        cv2.circle(frame, (self.line.x1, self.line.y1), 7, (255, 255, 255), 2)
+        cv2.putText(frame, "P1", (self.line.x1 - 10, self.line.y1 - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (16, 185, 129), 2)
+
+        cv2.circle(frame, (self.line.x2, self.line.y2), 7, (246, 130, 59), -1)  # Blue P2
+        cv2.circle(frame, (self.line.x2, self.line.y2), 7, (255, 255, 255), 2)
+        cv2.putText(frame, "P2", (self.line.x2 - 10, self.line.y2 - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (246, 130, 59), 2)
+
+        # Buffer zone (garis tipis putus-putus acuan)
         cv2.line(
             frame,
             (self.line.x1, max(0, self.line.y1 - self.line.offset)),
             (self.line.x2, max(0, self.line.y2 - self.line.offset)),
-            (200, 200, 200),
+            (148, 163, 184),
             1
         )
         cv2.line(
             frame,
             (self.line.x1, self.line.y1 + self.line.offset),
             (self.line.x2, self.line.y2 + self.line.offset),
-            (200, 200, 200),
+            (148, 163, 184),
             1
         )
 
-        # Bounding box dan track ID
+        # Bounding box dan Track ID orang
         for t in tracks:
             x1, y1, x2, y2 = t["bbox"]
             tid = t["track_id"]
             cx, cy = t["centroid"]
 
-            cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
+            # Bounding box orang (Hijau Cerah)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (16, 185, 129), 2)
             cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)
 
             # Label Track ID
+            cv2.rectangle(frame, (x1, max(0, y1 - 22)), (x1 + 75, max(22, y1)), (15, 23, 42), -1)
             cv2.putText(
                 frame,
-                f"ID #{tid}",
-                (x1, max(20, y1 - 8)),
+                f"Tamu #{tid}",
+                (x1 + 4, max(16, y1 - 6)),
                 cv2.FONT_HERSHEY_SIMPLEX,
-                0.5,
-                (0, 255, 0),
-                2
+                0.42,
+                (255, 255, 255),
+                1
             )
 
-        # Overlay HUD Panel
-        cv2.rectangle(frame, (10, 10), (220, 80), (15, 23, 42), -1)
-        cv2.rectangle(frame, (10, 10), (220, 80), (51, 65, 85), 1)
+        # Overlay HUD Panel di kiri atas
+        overlay = frame.copy()
+        cv2.rectangle(overlay, (15, 15), (260, 105), (15, 23, 42), -1)
+        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+        cv2.rectangle(frame, (15, 15), (260, 105), (51, 65, 85), 1)
 
-        cv2.putText(frame, f"MASUK  : {self.total_in}", (20, 35), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (16, 185, 129), 2)
-        cv2.putText(frame, f"KELUAR : {self.total_out}", (20, 65), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (59, 130, 246), 2)
+        cv2.putText(frame, f"MASUK   : {self.total_in}", (30, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (16, 185, 129), 2)
+        cv2.putText(frame, f"KELUAR  : {self.total_out}", (30, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (59, 130, 246), 2)
+        cv2.putText(frame, f"LIVE @ {current_fps:.1f} FPS", (30, 94), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (148, 163, 184), 1)

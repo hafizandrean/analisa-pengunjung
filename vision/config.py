@@ -31,3 +31,7 @@ class VisionWorkerConfig(BaseModel):
     start_frame: int = Field(default=0, description="Nomor frame awal pemrosesan")
     max_frames: Optional[int] = Field(default=None, description="Batasan jumlah frame uji coba")
     loop_video: bool = Field(default=False, description="Looping video jika mencapai EOF")
+    enable_stream: bool = Field(default=True, description="Jalankan server streaming video MJPEG untuk browser")
+    stream_port: int = Field(default=8080, description="Port HTTP server streaming MJPEG")
+    frame_skip: int = Field(default=1, description="Lewati N frame untuk meningkatkan performa FPS")
+    auto_reconnect: bool = Field(default=True, description="Koneksi ulang otomatis bila RTSP terputus")

@@ -1,7 +1,8 @@
 # Ayam Bang Jungko — CCTV Visitor Counting & Crowd Analytics
 
 > **Capstone Design Project:**  
-> *"Sistem Penghitungan Pengunjung untuk Analisa Pola Keramaian Berbasis CCTV untuk Usaha Ayam Bang Jungko"*
+> *"Sistem Penghitungan Pengunjung untuk Analisa Pola Keramaian Berbasis CCTV untuk Usaha Ayam Bang Jungko"*  
+> **Teknologi:** PHP Native (PDO, Tailwind CSS, Chart.js) &bull; Python AI (YOLOv8 + ByteTrack)
 
 ---
 
@@ -9,50 +10,62 @@
 
 Aplikasi analitik operasional berbasis web untuk membantu pemilik dan manajer operasional **Ayam Bang Jungko** memahami pola lalu lintas pengunjung restoran, mendeteksi jam-jam sibuk (*peak hours*), serta mengoptimalkan kesiapan staf dan meja tanpa menyimpan citra wajah pengunjung (*privacy-first*).
 
-Sistem menggunakan arsitektur *hybrid edge-cloud analytics*:
-- **Edge / Worker**: Inferensi deteksi manusia (YOLOv8) dan pelacakan lintasan (ByteTrack) berbasis garis virtual crossing.
-- **REST API & Database**: Penyimpanan terstruktur kejadian melintas (*counting events*) dengan stempel waktu zona **Asia/Jakarta (WIB)**.
-- **Web Dashboard**: Antarmuka SaaS modern untuk visualisasi distribusi keramaian per jam, tren mingguan, riwayat crossing, dan konfigurasi koordinat garis virtual.
+Sistem menggunakan arsitektur **Hybrid PHP Native + AI Worker**:
+- **Web Dashboard & REST API (PHP Native)**: Menangani antarmuka visualisasi, kalkulasi pola keramaian, riwayat penyeberangan, editor koordinat garis virtual interaktif (Canvas), serta penyimpanan basis data (PDO MySQL/SQLite).
+- **AI Vision Worker (Python YOLOv8 + ByteTrack)**: Memproses feed video/CCTV secara real-time, mendeteksi orang melintasi garis virtual, lalu mengirimkan event secara otomatis ke endpoint PHP Native.
 
 ---
 
 ## 2. Fitur Utama
 
-- **Dashboard Real-Time**: Ringkasan total pengunjung hari ini (masuk & keluar), total minggu ini, rata-rata harian, dan jam tersibuk.
-- **Analisa Pola Keramaian (Crowd Analytics)**: Identifikasi jam sibuk dengan status kepadatan (*PADAT*, *SEDANG*, *LENGANG*), evaluasi kontribusi trafik harian, dan perbandingan antar periode.
-- **Riwayat Hitungan & Ekspor CSV**: Tabel interaktif berfilter (arah, kamera, kata kunci) dengan paginasi dan fitur unduh berkas CSV.
-- **Editor Garis Virtual Interaktif**: Visualisasi canvas koordinat titik penyeberangan P1 `(x1, y1)` dan P2 `(x2, y2)` yang dapat dikonfigurasi langsung tanpa mengubah kode sumber.
-- **Mode Demo Mandiri (Deterministic Demo Provider)**: Pratinjau langsung dashboard lengkap dengan metrik realistis pola operasional restoran kuliner Ayam Bang Jungko.
-- **Privasi & Keamanan**: Tanpa fitur facial recognition, tidak menyimpan foto pengunjung, serta penyembunyian kredensial CCTV RTSP secara otomatis.
+- **Dashboard Real-Time**: Ringkasan total pengunjung hari ini (masuk & keluar), total minggu ini, rata-rata harian, dan jam tersibuk (*busiest hour*).
+- **Analisa Pola Keramaian (Crowd Analytics)**: Identifikasi jam sibuk dengan status kepadatan (**PADAT**, **SEDANG**, **LENGANG**), evaluasi kontribusi trafik per shift operasional (Makan Siang, Sore Hari, Makan Malam).
+- **Riwayat Hitungan & Ekspor Laporan Human-Readable**: Tabel interaktif berfilter (arah, kamera, kata kunci) dengan paginasi, serta ekspor ke **Microsoft Excel (.xls)** (rapi dengan warna dan kolom terformat), **Cetak / Simpan Dokumen PDF**, dan CSV.
+- **Editor Garis Virtual Interaktif (HTML5 Canvas)**: Visualisasi canvas koordinat titik penyeberangan P1 `(x1, y1)` dan P2 `(x2, y2)` yang dapat disesuaikan langsung lewat antarmuka web tanpa menyentuh kode program.
+- **Privasi Terjamin**: Tanpa fitur pengenalan wajah (*facial recognition*), tidak menyimpan foto/wajah pengunjung, menjunjung tinggi privasi pelanggan.
 
 ---
 
-## 3. Struktur Monorepo
+## 3. Struktur Direktori Proyek
 
 ```
 analisa-pengunjung/
-├── backend/            # FastAPI REST API, Pydantic schemas, endpoints, pytest
-│   ├── app/
-│   │   ├── api/v1/     # Endpoint modular (/health, /dashboard, /analytics, dll.)
-│   │   ├── core/       # Konfigurasi aplikasi & settings
-│   │   ├── schemas/    # Pydantic v2 validation models
-│   │   └── main.py     # Entry point FastAPI
-│   ├── tests/          # Pytest backend tests
-│   └── Dockerfile
-├── frontend/           # React 18, TypeScript, Vite, Tailwind CSS, Recharts
-│   ├── src/
-│   │   ├── components/ # Komponen UI, Canvas garis virtual, Charts
-│   │   ├── context/    # AuthContext & ProtectedRoute
-│   │   ├── pages/      # Login, Dashboard, Analytics, History, Cameras, System
-│   │   ├── services/   # Client API terpusat & Demo Data Provider
-│   │   └── types/      # Kontrak tipe TypeScript terpadu
-│   └── tests/          # Vitest suite
-├── vision/             # Pipeline computer vision YOLOv8 + ByteTrack
-├── database/           # DDL schema PostgreSQL & relasi ERD
-├── docs/               # Dokumentasi arsitektur sistem & desain basis data
-├── docker-compose.yml  # Orkestrasi Docker lokal
-├── .env.example        # Templat variabel lingkungan
-└── README.md           # Panduan penggunaan
+├── api/                        # REST API PHP Native
+│   ├── analytics.php           # Endpoint data per jam, harian, & peak hours
+│   ├── cameras.php             # Endpoint CRUD kamera & update koordinat garis
+│   ├── dashboard.php           # Endpoint ringkasan metrik dashboard
+│   ├── events.php              # Endpoint penerima event dari Python AI
+│   ├── export_excel.php        # Endpoint unduh berkas spreadsheet Excel (.xls)
+│   └── export_csv.php          # Endpoint unduh berkas CSV
+├── config/
+│   └── database.php            # Koneksi PDO (Mendukung SQLite & MySQL/XAMPP)
+├── database/
+│   ├── schema_mysql.sql        # DDL Skema basis data untuk MySQL (XAMPP)
+│   └── analisa_pengunjung.sqlite # File database SQLite lokal (Auto-generate)
+├── includes/
+│   ├── auth_check.php          # Proteksi sesi pengguna
+│   ├── footer.php              # Footer template
+│   └── header.php              # Header template & Sidebar navigasi
+├── samples/
+│   └── video_sample.mp4        # Berkas sampel video CCTV uji coba
+├── vision/                     # Modul AI Computer Vision (Python)
+│   ├── models/                 # Model bobot YOLOv8n
+│   ├── detector.py             # Detektor orang YOLOv8
+│   ├── tracker.py              # Pelacak ByteTrack
+│   ├── line_crossing.py        # Logika perpotongan garis virtual
+│   ├── event_dispatcher.py     # Pengirim event ke PHP Native API
+│   ├── worker.py               # Worker video processing
+│   └── worker_php.py           # Runner utama AI yang terhubung ke PHP
+├── analytics.php               # Halaman Analisa Pola Keramaian
+├── cameras.php                 # Halaman Pengaturan Kamera & Editor Canvas
+├── history.php                 # Halaman Riwayat Penyeberangan
+├── index.php                   # Halaman Dashboard Utama
+├── login.php                   # Halaman Masuk
+├── logout.php                  # Skrip Keluar Sesi
+├── system.php                  # Halaman Status Sistem & Diagnostik
+├── .env.example                # Templat konfigurasi environment
+├── .gitignore                  # Berkas pengecualian Git
+└── README.md                   # Dokumentasi proyek
 ```
 
 ---
@@ -60,92 +73,54 @@ analisa-pengunjung/
 ## 4. Panduan Menjalankan Aplikasi
 
 ### Kebutuhan Sistem:
-- **Node.js**: v18+ (Disarankan v20+)
-- **Python**: 3.10+
-- **Docker & Docker Compose** (opsional untuk container database PostgreSQL)
+- **PHP**: 8.0+ (Telah terpasang PHP 8.3)
+- **Python**: 3.10+ (Dengan OpenCV, Ultralytics YOLOv8, PyTorch, dan Requests)
 
 ---
 
-### A. Menjalankan Backend (FastAPI)
+### A. Menjalankan Web Dashboard (PHP Native)
 
-1. Buka terminal pada folder `backend`:
+#### Cara 1: Menggunakan Built-in Web Server PHP (Instan & Tanpa XAMPP)
+1. Buka terminal di folder proyek:
    ```bash
-   cd backend
+   cd d:\Documents\GitHub\analisa-pengunjung
    ```
-2. Pasang dependensi Python:
+2. Jalankan web server bawaan PHP:
    ```bash
-   pip install -r requirements.txt
+   php -S 127.0.0.1:8000
    ```
-3. Jalankan server FastAPI:
-   ```bash
-   uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
-   ```
-4. Akses dokumentasi interaktif API:
-   - **Swagger UI**: [http://127.0.0.1:8000/api/v1/docs](http://127.0.0.1:8000/api/v1/docs)
-   - **ReDoc**: [http://127.0.0.1:8000/api/v1/redoc](http://127.0.0.1:8000/api/v1/redoc)
-   - **Health Check**: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+3. Buka browser:
+   - Dashboard: [http://127.0.0.1:8000/index.php](http://127.0.0.1:8000/index.php)
+   - Login: [http://127.0.0.1:8000/login.php](http://127.0.0.1:8000/login.php)
+
+> **Kredensial Default Login:**  
+> Email: `admin@ayambangjungko.com`  
+> Kata Sandi: `admin123`
+
+#### Cara 2: Menggunakan XAMPP (Apache + MySQL)
+1. Salin folder proyek ini ke `C:\xampp\htdocs\analisa-pengunjung`.
+2. Aktifkan **Apache** dan **MySQL** di XAMPP Control Panel.
+3. Buka [http://localhost/phpmyadmin](http://localhost/phpmyadmin) lalu buat database bernama `analisa_pengunjung` dan impor file `database/schema_mysql.sql`.
+4. Buka file `config/database.php` dan pastikan konfigurasi driver adalah `mysql`.
+5. Akses [http://localhost/analisa-pengunjung/index.php](http://localhost/analisa-pengunjung/index.php).
 
 ---
 
-### B. Menjalankan Frontend (React + Vite)
+### B. Menjalankan AI Vision Worker (Python)
 
-1. Buka terminal baru pada folder `frontend`:
+Worker AI membaca video/CCTV, mendeteksi pengunjung melintasi garis virtual, lalu mengirimkan event secara real-time ke web PHP Native:
+
+1. Buka terminal baru:
    ```bash
-   cd frontend
+   cd d:\Documents\GitHub\analisa-pengunjung
    ```
-2. Pasang dependensi npm:
+2. Jalankan worker:
    ```bash
-   npm install
+   python vision/worker_php.py --video "samples/video_sample.mp4" --api "http://127.0.0.1:8000/api/events.php"
    ```
-3. Jalankan server pengembang Vite:
-   ```bash
-   npm run dev
-   ```
-4. Buka antarmuka web di peramban:
-   [http://localhost:5173](http://localhost:5173)
-
-### C. Menjalankan Vision Worker (YOLOv8 + ByteTrack)
-
-Worker computer vision dapat dijalankan secara terpisah dari backend API untuk memproses rekaman video:
-
-```bash
-# Menjalankan worker pada video sample.mp4
-python -m vision.cli --video "video sample.mp4" --line-y 215 --dir-in down --start-frame 750 --max-frames 200
-```
-- Gunakan opsi `--show` jika ingin menampilkan visualisasi bounding box, ID pelacak, dan HUD counter secara langsung.
-
----
-
-### Kredensial Masuk (Login):
-- **Email**: `admin@ayambangjungko.com`
-- **Kata Sandi**: `password123`
-
----
-
-## 5. Menjalankan Pengujian Otomatis (Automated Testing)
-
-### Pengujian Backend & Vision Pipeline:
-```bash
-python -m pytest backend/tests/test_api.py vision/tests/ -v
-```
-*(Seluruh 19 uji coba integrasi API, database, detektor YOLO, tracker ByteTrack, dan line crossing lulus 100%)*
-
-### Pengujian Frontend:
-```bash
-cd frontend
-npm test
-```
-*(Seluruh 9 uji coba validasi formatting lokal dan integritas data lulus 100%)*
-
----
-
-## 6. Menjalankan dengan Docker Compose
-
-Untuk menjalankan seluruh stack (PostgreSQL 15, FastAPI, React Frontend) secara terorkestrasi:
-
-```bash
-docker compose up -d
-```
-- Frontend: [http://localhost:5173](http://localhost:5173)
-- Backend: [http://localhost:8000](http://localhost:8000)
-- PostgreSQL: `localhost:5432`
+3. Opsi tambahan:
+   - Tambahkan `--show` untuk menampilkan preview video GUI OpenCV:
+     ```bash
+     python vision/worker_php.py --video "samples/video_sample.mp4" --api "http://127.0.0.1:8000/api/events.php" --show
+     ```
+   - Gunakan `--video 0` jika ingin menguji dengan webcam laptop/PC secara langsung.

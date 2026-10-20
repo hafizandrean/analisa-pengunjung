@@ -13,7 +13,11 @@ class BackendEventDispatcher:
     """
 
     def __init__(self, api_base_url: str = "http://127.0.0.1:8000/api/v1", max_queue_size: int = 500):
-        self.api_url = f"{api_base_url.rstrip('/')}/events"
+        url = api_base_url.strip()
+        if url.endswith(".php") or url.endswith("/events"):
+            self.api_url = url
+        else:
+            self.api_url = f"{url.rstrip('/')}/events"
         self.event_queue = queue.Queue(maxsize=max_queue_size)
         self.is_running = True
         self.delivered_count = 0

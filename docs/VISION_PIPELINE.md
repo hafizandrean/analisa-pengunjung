@@ -22,7 +22,7 @@ Pipeline pemrosesan video computer vision dirancang modular dan terpisah dari si
 [Virtual Counting Line Crossing]      ──> Evaluasi vektor crossing, hysteresis offset & debouncing
          │
          ▼
-[Backend Event Dispatcher]            ──> Antrian thread asinkron ke POST /api/v1/events
+[Backend Event Dispatcher]            ──> Antrian thread asinkron ke POST /api/events.php
 ```
 
 ---
@@ -32,7 +32,7 @@ Pipeline pemrosesan video computer vision dirancang modular dan terpisah dari si
 Untuk mencegah penghitungan berulang akibat getaran frame (*jitter*), seseorang yang diam di atas garis, atau osilasi titik centroid:
 
 1. **Hysteresis Buffer Zone (Offset)**:
-   Sebuah zona penyangga selebar $\pm \text{offset}$ pixel (default 25px) diterapkan di sekitar garis virtual. Perpotongan hanya dihitung bila objek benar-benar melintasi batas atas ke batas bawah atau sebaliknya.
+   Sebuah zona penyangga selebar $\pm \text{offset}$ pixel (default 25-35px) diterapkan di sekitar garis virtual. Perpotongan hanya dihitung bila objek benar-benar melintasi batas atas ke batas bawah atau sebaliknya.
 2. **State Machine per Track ID**:
    Setiap `track_id` memiliki status `counted_dir` (`IN` atau `OUT`). Sekali objek terdeteksi melintas dalam arah `IN`, statusnya ditandai sehingga frame-frame berikutnya dari objek yang sama tidak akan memicu penambahan hitungan lagi.
 3. **Debounce Frame Cooldown**:
@@ -40,23 +40,19 @@ Untuk mencegah penghitungan berulang akibat getaran frame (*jitter*), seseorang 
 
 ---
 
-### 3. Panduan Menjalankan Worker Vision (Demo Video Workflow)
+### 3. Panduan Menjalankan Worker Vision
 
-#### A. Persiapan Backend API
-Pastikan backend FastAPI aktif untuk menerima event crossing:
+#### A. Persiapan Backend Web PHP Native
+Pastikan web server PHP Native aktif di port 8000:
 ```powershell
-cd d:\Documents\GitHub\analisa-pengunjung\backend
-uvicorn app.main:app --host 127.0.0.1 --port 8000
+php -S 127.0.0.1:8000
 ```
 
-#### B. Menjalankan Worker Pemrosesan Video Lokal
-Jalankan worker menggunakan modul CLI:
+#### B. Menjalankan Worker AI Python yang Terhubung ke PHP Native
 ```powershell
-cd d:\Documents\GitHub\analisa-pengunjung
-
-# Menjalankan pemrosesan pada video sample.mp4
-python -m vision.cli --video "video sample.mp4" --line-y 215 --dir-in down --start-frame 750 --max-frames 200
+python vision/worker_php.py --video "samples/video_sample.mp4" --api "http://127.0.0.1:8000/api/events.php"
 ```
+Tambahkan `--show` untuk menampilkan visualisasi GUI OpenCV secara langsung.
 
 #### Argumen CLI yang Tersedia:
 - `--video`: Path berkas video lokal (default: `video sample.mp4`).

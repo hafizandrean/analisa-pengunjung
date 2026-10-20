@@ -1,7 +1,6 @@
-# Node & Frontend
+# Node & Frontend (jika ada)
 node_modules/
 dist/
-dist-ssr/
 *.local
 
 # Python bytecode & cache
@@ -33,8 +32,8 @@ Thumbs.db
 *.log
 log.txt
 
-# Computer vision weights & large temp data
-*.pt
-*.onnx
-yolov8*.pt
+# Database SQLite temp files
+*.sqlite-journal
+
+# Computer vision temp data
 runs/
