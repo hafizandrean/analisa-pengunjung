@@ -12,6 +12,7 @@ header('Content-Type: application/json; charset=utf-8');
 header('Access-Control-Allow-Origin: *');
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/settings.php';
 
 try {
     $pdo = getDBConnection();
@@ -20,7 +21,16 @@ try {
     $hourExpr = $isSqlite ? "CAST(strftime('%H', event_timestamp) AS INTEGER)" : "HOUR(event_timestamp)";
     $dateExpr = $isSqlite ? "strftime('%Y-%m-%d', event_timestamp)" : "DATE(event_timestamp)";
 
-    $indonesianDays = [
+    $currentLang = getSetting('language', 'id');
+    $dayNames = ($currentLang === 'en') ? [
+        1 => 'Monday',
+        2 => 'Tuesday',
+        3 => 'Wednesday',
+        4 => 'Thursday',
+        5 => 'Friday',
+        6 => 'Saturday',
+        7 => 'Sunday'
+    ] : [
         1 => 'Senin',
         2 => 'Selasa',
         3 => 'Rabu',
@@ -60,9 +70,20 @@ try {
             ];
         }
 
-        // Jam operasional Ayam Bang Jungko (10:00 - 21:00)
+        // Rentang jam grafik: adaptif sesuai jam operasional di Pengaturan
+        // serta otomatis melebar jika restoran buka lebih awal (pagi) atau tutup lebih larut (lembur)
+        $openTime = getSetting('opening_time', '10:00');
+        $closeTime = getSetting('closing_time', '22:00');
+        $openH = (int)explode(':', $openTime)[0];
+        $closeH = (int)explode(':', $closeTime)[0];
+        if ($closeH <= $openH) $closeH = 22;
+
+        $recordedHours = array_keys($hourMap);
+        $minH = !empty($recordedHours) ? min(min($recordedHours), $openH) : $openH;
+        $maxH = !empty($recordedHours) ? max(max($recordedHours), $closeH) : $closeH;
+
         $result = [];
-        for ($h = 10; $h <= 21; $h++) {
+        for ($h = $minH; $h <= $maxH; $h++) {
             $inVal = $hourMap[$h]['in'] ?? 0;
             $outVal = $hourMap[$h]['out'] ?? 0;
             $result[] = [
@@ -110,7 +131,7 @@ try {
             $dayOfWeek = (int)date('N', strtotime($d));
             $result[] = [
                 'date' => $d,
-                'day_name' => $indonesianDays[$dayOfWeek],
+                'day_name' => $dayNames[$dayOfWeek],
                 'count_in' => $inVal,
                 'count_out' => $outVal,
                 'total' => $inVal + $outVal
@@ -187,7 +208,7 @@ try {
             }
 
             $result[] = [
-                'label' => $indonesianDays[$dayNum],
+                'label' => $dayNames[$dayNum],
                 'current_period_count' => $currCnt,
                 'previous_period_count' => $prevCnt,
                 'percentage_change' => $pctChange

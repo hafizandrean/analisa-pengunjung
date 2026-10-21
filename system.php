@@ -18,8 +18,8 @@ include __DIR__ . '/includes/header.php';
 
 <!-- Title -->
 <div>
-    <h2 class="text-2xl font-bold tracking-tight text-slate-900">Kondisi & Kesehatan Sistem</h2>
-    <p class="text-xs text-slate-500 mt-1">Melihat status web, penyimpanan data, dan koneksi kamera CCTV.</p>
+    <h2 class="text-2xl font-bold tracking-tight text-slate-900"><?= __('sys_title') ?></h2>
+    <p class="text-xs text-slate-500 mt-1"><?= __('sys_subtitle') ?></p>
 </div>
 
 <!-- Diagnostics Grid -->
@@ -27,36 +27,36 @@ include __DIR__ . '/includes/header.php';
     <!-- Server Web / PHP -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm">
         <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-semibold text-slate-500 uppercase">Aplikasi Web</span>
+            <span class="text-xs font-semibold text-slate-500 uppercase"><?= __('metric_web_app') ?></span>
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
         </div>
-        <div class="text-2xl font-bold text-slate-900">Aktif Normal</div>
+        <div class="text-2xl font-bold text-slate-900"><?= __('val_active_normal') ?></div>
         <div class="text-[11px] text-slate-500 mt-2">
-            Status: <span class="font-semibold text-emerald-600">Berjalan Lancar</span>
+            Status: <span class="font-semibold text-emerald-600"><?= __('status_running_smooth') ?></span>
         </div>
     </div>
 
     <!-- Database -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm">
         <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-semibold text-slate-500 uppercase">Penyimpanan Data</span>
+            <span class="text-xs font-semibold text-slate-500 uppercase"><?= __('metric_storage') ?></span>
             <span class="w-2.5 h-2.5 rounded-full bg-emerald-500"></span>
         </div>
-        <div class="text-2xl font-bold text-slate-900">Tersambung</div>
+        <div class="text-2xl font-bold text-slate-900"><?= __('val_connected') ?></div>
         <div class="text-[11px] text-slate-500 mt-2">
-            Status: <span class="font-semibold text-emerald-600">Database Siap</span>
+            Status: <span class="font-semibold text-emerald-600"><?= __('status_db_ready') ?></span>
         </div>
     </div>
 
     <!-- Total Records -->
     <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm">
         <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-semibold text-slate-500 uppercase">Catatan Orang Lewat</span>
+            <span class="text-xs font-semibold text-slate-500 uppercase"><?= __('metric_records') ?></span>
             <i data-lucide="users" class="w-4 h-4 text-orange-500"></i>
         </div>
         <div class="text-2xl font-bold text-slate-900"><?= number_format($totalEvents) ?></div>
         <div class="text-[11px] text-slate-500 mt-2">
-            Dari <span class="font-semibold text-slate-700"><?= $totalCameras ?> kamera</span> terdaftar
+            <?= __('from_cams') ?> <span class="font-semibold text-slate-700"><?= $totalCameras ?></span> <?= __('registered_cams') ?>
         </div>
     </div>
 
@@ -80,14 +80,14 @@ include __DIR__ . '/includes/header.php';
     ?>
     <div class="bg-white rounded-2xl p-5 border border-slate-200/80 shadow-sm">
         <div class="flex items-center justify-between mb-2">
-            <span class="text-xs font-semibold text-slate-500 uppercase">Pendeteksi Kamera</span>
+            <span class="text-xs font-semibold text-slate-500 uppercase"><?= __('metric_camera_detector') ?></span>
             <span class="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold <?= $streamActive ? 'bg-emerald-50 text-emerald-700' : 'bg-slate-100 text-slate-600' ?>">
                 <?= $streamActive ? 'ONLINE' : 'STANDBY' ?>
             </span>
         </div>
-        <div class="text-xl font-bold text-slate-900"><?= $streamActive ? 'Sedang Mendeteksi' : 'Hitung Otomatis' ?></div>
+        <div class="text-xl font-bold text-slate-900"><?= $streamActive ? __('val_detecting_now') : __('val_auto_count') ?></div>
         <div class="text-[11px] text-slate-500 mt-2">
-            Kondisi: <span class="font-semibold <?= $streamActive ? 'text-emerald-600' : 'text-slate-600' ?>"><?= $streamActive ? "Live Streaming ($streamFps FPS)" : 'Siaga / Standby' ?></span>
+            <?= __('condition_label') ?> <span class="font-semibold <?= $streamActive ? 'text-emerald-600' : 'text-slate-600' ?>"><?= $streamActive ? "Live Streaming ($streamFps FPS)" : __('standby_state') ?></span>
         </div>
     </div>
 </div>
@@ -96,14 +96,14 @@ include __DIR__ . '/includes/header.php';
 <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm">
     <h3 class="text-sm font-bold text-slate-900 mb-2 flex items-center gap-2">
         <i data-lucide="video" class="w-4 h-4 text-orange-500"></i>
-        <span>Cara Menghubungkan Kamera CCTV ke Sistem</span>
+        <span><?= __('cctv_connect_guide') ?></span>
     </h3>
     <p class="text-xs text-slate-600 mb-4">
-        Jalankan perintah ini di terminal komputer untuk mulai menghitung pengunjung dari CCTV secara otomatis:
+        <?= __('cctv_connect_desc') ?>
     </p>
 
     <div class="bg-slate-900 text-slate-100 p-4 rounded-2xl font-mono text-xs overflow-x-auto space-y-2">
-        <div class="text-slate-400"># Jalankan pendeteksi kamera CCTV:</div>
+        <div class="text-slate-400"><?= __('run_cctv_cmd_comment') ?></div>
         <div class="text-emerald-400">python vision/worker_php.py --video "samples/video_sample.mp4" --api "http://127.0.0.1:8000/api/events.php"</div>
     </div>
 </div>
@@ -112,12 +112,12 @@ include __DIR__ . '/includes/header.php';
 <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm">
     <h3 class="text-sm font-bold text-slate-900 mb-4 flex items-center gap-2">
         <i data-lucide="file-text" class="w-4 h-4 text-slate-400"></i>
-        <span>Log Aktivitas Sistem</span>
+        <span><?= __('sys_logs_title') ?></span>
     </h3>
 
     <div class="space-y-2 font-mono text-xs">
         <?php if (empty($logs)): ?>
-            <div class="text-slate-400 py-4 text-center">Belum ada catatan log sistem.</div>
+            <div class="text-slate-400 py-4 text-center"><?= __('no_sys_logs') ?></div>
         <?php else: ?>
             <?php foreach ($logs as $l): ?>
                 <div class="p-3 rounded-xl bg-slate-50 border border-slate-100 flex items-start justify-between gap-3">

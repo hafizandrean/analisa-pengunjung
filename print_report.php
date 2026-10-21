@@ -131,8 +131,8 @@ if ($cameraId) {
                 <div class="text-xs font-bold text-slate-800 mt-1 truncate"><?= htmlspecialchars($cameraName) ?></div>
             </div>
             <div class="bg-slate-50 border border-slate-200/80 p-3.5 rounded-xl">
-                <div class="text-[10px] font-bold uppercase text-slate-400">Total Kejadian</div>
-                <div class="text-base font-bold text-slate-900 mt-1"><?= number_format($totalCount) ?> melintas</div>
+                <div class="text-[10px] font-bold uppercase text-slate-400">Total Lalu Lalang</div>
+                <div class="text-base font-bold text-slate-900 mt-1"><?= number_format($totalCount) ?> kali melintas</div>
             </div>
             <div class="bg-emerald-50 border border-emerald-200 p-3.5 rounded-xl">
                 <div class="text-[10px] font-bold uppercase text-emerald-700">Total Masuk (IN)</div>
@@ -149,17 +149,17 @@ if ($cameraId) {
             <thead>
                 <tr class="bg-slate-900 text-white font-semibold text-[11px]">
                     <th class="py-2.5 px-3 border border-slate-700 text-center w-12">No</th>
-                    <th class="py-2.5 px-3 border border-slate-700">Waktu Kejadian (WIB)</th>
+                    <th class="py-2.5 px-3 border border-slate-700">Waktu Kunjungan (WIB)</th>
                     <th class="py-2.5 px-3 border border-slate-700">Kamera CCTV</th>
                     <th class="py-2.5 px-3 border border-slate-700 text-center">Arah</th>
-                    <th class="py-2.5 px-3 border border-slate-700 text-center">Track ID</th>
-                    <th class="py-2.5 px-3 border border-slate-700 text-center">Confidence</th>
+                    <th class="py-2.5 px-3 border border-slate-700 text-center">ID Tamu</th>
+                    <th class="py-2.5 px-3 border border-slate-700 text-center">Akurasi AI</th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-200">
                 <?php if (empty($records)): ?>
                     <tr>
-                        <td colspan="6" class="py-8 text-center text-slate-400">Tidak ada catatan data penyeberangan.</td>
+                        <td colspan="6" class="py-8 text-center text-slate-400">Tidak ada catatan data pengunjung.</td>
                     </tr>
                 <?php else: ?>
                     <?php $no = 1; foreach ($records as $r): ?>

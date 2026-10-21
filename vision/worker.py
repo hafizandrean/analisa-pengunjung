@@ -3,6 +3,10 @@ import time
 import json
 import sqlite3
 from datetime import datetime, timezone
+try:
+    from zoneinfo import ZoneInfo
+except ImportError:
+    from backports.zoneinfo import ZoneInfo
 from typing import Dict, Any, Optional
 import cv2
 import numpy as np
@@ -62,6 +66,142 @@ class VisionWorker:
         self.start_time: Optional[float] = None
         self.is_running = False
 
+        # Pengaturan jam operasional & status harian
+        self.settings: Dict[str, str] = {}
+        self.last_reset_day: Optional[str] = None
+        self.manual_override: Optional[bool] = None
+        self.is_open: bool = False
+        self.operating_status_text: str = "Tutup"
+
+        # Muat hitungan hari ini dari database dan status operasional
+        self._load_settings_and_today_counts()
+
+    def _get_tz(self):
+        tz_name = self.settings.get("timezone", "Asia/Jakarta")
+        try:
+            return ZoneInfo(tz_name)
+        except Exception:
+            return timezone.utc
+
+    def _load_settings_and_today_counts(self):
+        """Memuat pengaturan jam operasional dan mensinkronkan hitungan hari ini dari database SQLite."""
+        if not os.path.exists(self.db_path):
+            return
+
+        try:
+            conn = sqlite3.connect(self.db_path, timeout=5.0)
+            cursor = conn.cursor()
+
+            # 1. Ambil pengaturan sistem
+            cursor.execute("SELECT setting_key, setting_value FROM app_settings")
+            rows = cursor.fetchall()
+            self.settings = {k: v for k, v in rows}
+
+            # 2. Ambil akumulasi hitungan hari ini (sesuai tanggal zona waktu lokal)
+            tz = self._get_tz()
+            now_dt = datetime.now(tz)
+            today_str = now_dt.strftime("%Y-%m-%d")
+            self.last_reset_day = today_str
+
+            cursor.execute("""
+                SELECT 
+                    COALESCE(SUM(CASE WHEN direction = 'IN' THEN count_value ELSE 0 END), 0),
+                    COALESCE(SUM(CASE WHEN direction = 'OUT' THEN count_value ELSE 0 END), 0)
+                FROM counting_events 
+                WHERE camera_id = ? AND DATE(event_timestamp) = ?
+            """, (self.config.camera_id, today_str))
+            count_row = cursor.fetchone()
+            conn.close()
+
+            if count_row:
+                self.total_in = int(count_row[0])
+                self.total_out = int(count_row[1])
+                print(f"[VisionWorker] 📊 Sinkronisasi data awal hari ini ({today_str}): Masuk = {self.total_in}, Keluar = {self.total_out}")
+
+            # Periksa status buka/tutup awal
+            self._check_operating_hours_and_status()
+
+        except Exception as e:
+            print(f"[VisionWorker] Peringatan: Gagal memuat data awal hari ini: {e}")
+
+    def _check_operating_hours_and_status(self):
+        """Mengecek status buka/tutup toko berdasarkan otomatisasi jam operasional atau kontrol manual tombol Buka/Tutup."""
+        try:
+            if os.path.exists(self.db_path):
+                conn = sqlite3.connect(self.db_path, timeout=3.0)
+                cursor = conn.cursor()
+                cursor.execute("SELECT setting_key, setting_value FROM app_settings")
+                for k, v in cursor.fetchall():
+                    self.settings[k] = v
+                conn.close()
+        except Exception:
+            pass
+
+        # Cek apakah ada perubahan status manual dari endpoint HTTP /set_store_status
+        manual_status = GLOBAL_FRAME_BUFFER.stats.get("manual_store_status")
+        if manual_status:
+            with GLOBAL_FRAME_BUFFER.lock:
+                GLOBAL_FRAME_BUFFER.stats["manual_store_status"] = None
+            self.manual_override = (manual_status == "open")
+            # Simpan juga ke DB
+            try:
+                conn = sqlite3.connect(self.db_path, timeout=3.0)
+                conn.execute("UPDATE app_settings SET setting_value = ? WHERE setting_key = 'store_status'", (manual_status,))
+                conn.commit()
+                conn.close()
+            except Exception:
+                pass
+
+        tz = self._get_tz()
+        now_dt = datetime.now(tz)
+        today_str = now_dt.strftime("%Y-%m-%d")
+        current_hm = now_dt.strftime("%H:%M")
+
+        open_hm = self.settings.get("opening_time", "10:00")
+        close_hm = self.settings.get("closing_time", "22:00")
+        auto_active = self.settings.get("auto_operating_hours", "1") == "1"
+
+        if auto_active:
+            # Evaluasi jam operasional otomatis
+            if open_hm <= close_hm:
+                is_within_hours = (open_hm <= current_hm < close_hm)
+            else:
+                is_within_hours = (current_hm >= open_hm or current_hm < close_hm)
+
+            # Jika kasir/owner mengklik tombol manual Buka/Tutup, dahulukan perintah manual
+            if self.manual_override is not None:
+                self.is_open = self.manual_override
+                if self.is_open:
+                    if current_hm < open_hm:
+                        self.operating_status_text = f"Buka Awal (Jadwal: {open_hm})"
+                    elif current_hm >= close_hm:
+                        self.operating_status_text = f"Buka Lembur (Lewat {close_hm})"
+                    else:
+                        self.operating_status_text = f"Buka ({open_hm} - {close_hm})"
+                else:
+                    self.operating_status_text = "Tutup (Manual)"
+            else:
+                self.is_open = is_within_hours
+                if self.is_open:
+                    self.operating_status_text = f"Buka ({open_hm} - {close_hm})"
+                else:
+                    self.operating_status_text = f"Tutup (Buka {open_hm})"
+        else:
+            # Mode manual: status murni mengikuti tombol Buka/Tutup kasir
+            db_status = self.settings.get("store_status", "closed")
+            if self.manual_override is not None:
+                self.is_open = self.manual_override
+            else:
+                self.is_open = (db_status == "open")
+
+            self.operating_status_text = "Buka (Mode Manual)" if self.is_open else "Tutup (Mode Manual)"
+
+        # Saat berganti hari baru, segarkan tanggal dan sinkronisasi
+        if self.last_reset_day != today_str:
+            self.manual_override = None
+            self.last_reset_day = today_str
+            self._load_settings_and_today_counts()
+
     def _load_line_coords_from_db(self, actual_w: int = 1280, actual_h: int = 720):
         """Memuat atau memperbarui koordinat garis virtual dari database SQLite dan menyesuaikan ke resolusi video."""
         if not os.path.exists(self.db_path):
@@ -105,8 +245,12 @@ class VisionWorker:
             if is_device_index:
                 backend = cv2.CAP_DSHOW if os.name == "nt" else cv2.CAP_ANY
                 c = cv2.VideoCapture(int(source_input), backend)
+                c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             elif is_stream:
+                # Optimasi latensi rendah (Low Latency) & kestabilan TCP untuk CCTV IP / Wi-Fi
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay"
                 c = cv2.VideoCapture(source_input, cv2.CAP_FFMPEG)
+                c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             else:
                 if not os.path.exists(source_input):
                     raise FileNotFoundError(f"Sumber video tidak ditemukan: {source_input}")
@@ -164,6 +308,14 @@ class VisionWorker:
                 processed_in_this_run += 1
                 fps_frame_count += 1
 
+                # Cek jika ada permintaan reset manual dari UI web
+                if GLOBAL_FRAME_BUFFER.stats.get("reset_requested"):
+                    self.total_in = 0
+                    self.total_out = 0
+                    with GLOBAL_FRAME_BUFFER.lock:
+                        GLOBAL_FRAME_BUFFER.stats["reset_requested"] = False
+                    print("[VisionWorker] 🔄 Permintaan reset manual diterima: Hitungan dikembalikan ke 0.")
+
                 # Hitung estimasi real FPS
                 now_time = time.time()
                 if now_time - last_fps_calc >= 1.0:
@@ -193,36 +345,41 @@ class VisionWorker:
                     if crossing_dir:
                         new_crossing = True
                         flash_counter = 12
-                        now_iso = datetime.now(timezone.utc).isoformat()
 
-                        if crossing_dir == "IN":
-                            self.total_in += 1
-                        elif crossing_dir == "OUT":
-                            self.total_out += 1
+                        # HANYA hitung dan simpan event jika berada dalam jam operasional restoran
+                        if self.is_open:
+                            now_iso = datetime.now(timezone.utc).isoformat()
+                            if crossing_dir == "IN":
+                                self.total_in += 1
+                            elif crossing_dir == "OUT":
+                                self.total_out += 1
 
-                        print(f"[VisionWorker] DETEKSI: Pengunjung #{track_id} melintas {crossing_dir} (Total Masuk: {self.total_in}, Keluar: {self.total_out})")
+                            print(f"[VisionWorker] DETEKSI: Pengunjung #{track_id} melintas {crossing_dir} (Total Masuk: {self.total_in}, Keluar: {self.total_out})")
 
-                        # Kirim event ke backend REST API PHP Native
-                        self.dispatcher.dispatch(
-                            camera_id=self.config.camera_id,
-                            session_id=self.config.session_id,
-                            timestamp_iso=now_iso,
-                            direction=crossing_dir,
-                            count_value=1,
-                            track_id=track_id,
-                            confidence=conf,
-                            source_mode=self.config.source_mode,
-                            metadata={
-                                "frame_number": self.frames_processed,
-                                "bbox": t["bbox"],
-                                "fps": round(current_fps, 2)
-                            }
-                        )
+                            # Kirim event ke backend REST API PHP Native
+                            self.dispatcher.dispatch(
+                                camera_id=self.config.camera_id,
+                                session_id=self.config.session_id,
+                                timestamp_iso=now_iso,
+                                direction=crossing_dir,
+                                count_value=1,
+                                track_id=track_id,
+                                confidence=conf,
+                                source_mode=self.config.source_mode,
+                                metadata={
+                                    "frame_number": self.frames_processed,
+                                    "bbox": t["bbox"],
+                                    "fps": round(current_fps, 2)
+                                }
+                            )
+                        else:
+                            print(f"[VisionWorker] Tamu #{track_id} melintas {crossing_dir} saat restoran tutup ({self.operating_status_text}), gerakan diabaikan.")
 
-                # Pembersihan memori jejak lama & sinkronisasi koordinat garis berkala
+                # Pembersihan memori jejak lama & sinkronisasi koordinat garis + status jam operasional berkala
                 if self.frames_processed % 30 == 0:
                     self.line.cleanup_old_tracks(active_ids)
                     self._load_line_coords_from_db(width, height)
+                    self._check_operating_hours_and_status()
 
                 # 3. Anotasi visual untuk streaming browser dan preview
                 annotated_frame = frame.copy()
@@ -240,7 +397,13 @@ class VisionWorker:
                             "total_in": self.total_in,
                             "total_out": self.total_out,
                             "fps": round(current_fps, 1),
-                            "frame_number": self.frames_processed
+                            "frame_number": self.frames_processed,
+                            "is_open": self.is_open,
+                            "store_status": "open" if self.is_open else "closed",
+                            "operating_status": self.operating_status_text,
+                            "opening_time": self.settings.get("opening_time", "10:00"),
+                            "closing_time": self.settings.get("closing_time", "22:00"),
+                            "auto_operating_hours": self.settings.get("auto_operating_hours", "1") == "1",
                         },
                         quality=65
                     )
@@ -289,69 +452,89 @@ class VisionWorker:
 
     def _draw_annotations(self, frame: np.ndarray, tracks: list, is_crossing: bool, current_fps: float):
         """Menggambar visualisasi deteksi, garis virtual, dan HUD metrik pada frame."""
-        # Garis virtual (Kuning terang saat ada yang melintas, Oranye saat standby)
-        line_color = (0, 255, 255) if is_crossing else (22, 115, 249)  # BGR
-        cv2.line(
-            frame,
-            (self.line.x1, self.line.y1),
-            (self.line.x2, self.line.y2),
-            line_color,
-            3
-        )
+        # Garis virtual hanya digambar pada desktop preview GUI (--show).
+        # Untuk web stream (cameras.php), garis ditangani secara interaktif oleh HTML5 Canvas
+        # agar tidak terjadi garis ganda (ghosting) dan posisi selalu presisi serta bisa digeser bebas.
+        if self.config.show_preview:
+            line_color = (0, 255, 255) if is_crossing else (22, 115, 249)  # BGR
+            cv2.line(
+                frame,
+                (self.line.x1, self.line.y1),
+                (self.line.x2, self.line.y2),
+                line_color,
+                3
+            )
 
-        # Handle titik ujung garis P1 & P2
-        cv2.circle(frame, (self.line.x1, self.line.y1), 7, (16, 185, 129), -1)  # Emerald P1
-        cv2.circle(frame, (self.line.x1, self.line.y1), 7, (255, 255, 255), 2)
-        cv2.putText(frame, "P1", (self.line.x1 - 10, self.line.y1 - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (16, 185, 129), 2)
+            # Handle titik ujung garis P1 & P2
+            cv2.circle(frame, (self.line.x1, self.line.y1), 7, (16, 185, 129), -1)  # Emerald P1
+            cv2.circle(frame, (self.line.x1, self.line.y1), 7, (255, 255, 255), 2)
+            cv2.putText(frame, "P1", (self.line.x1 - 10, self.line.y1 - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (16, 185, 129), 2)
 
-        cv2.circle(frame, (self.line.x2, self.line.y2), 7, (246, 130, 59), -1)  # Blue P2
-        cv2.circle(frame, (self.line.x2, self.line.y2), 7, (255, 255, 255), 2)
-        cv2.putText(frame, "P2", (self.line.x2 - 10, self.line.y2 - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (246, 130, 59), 2)
+            cv2.circle(frame, (self.line.x2, self.line.y2), 7, (246, 130, 59), -1)  # Blue P2
+            cv2.circle(frame, (self.line.x2, self.line.y2), 7, (255, 255, 255), 2)
+            cv2.putText(frame, "P2", (self.line.x2 - 10, self.line.y2 - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.45, (246, 130, 59), 2)
 
-        # Buffer zone (garis tipis putus-putus acuan)
-        cv2.line(
-            frame,
-            (self.line.x1, max(0, self.line.y1 - self.line.offset)),
-            (self.line.x2, max(0, self.line.y2 - self.line.offset)),
-            (148, 163, 184),
-            1
-        )
-        cv2.line(
-            frame,
-            (self.line.x1, self.line.y1 + self.line.offset),
-            (self.line.x2, self.line.y2 + self.line.offset),
-            (148, 163, 184),
-            1
-        )
+            # Buffer zone (garis tipis putus-putus acuan)
+            cv2.line(
+                frame,
+                (self.line.x1, max(0, self.line.y1 - self.line.offset)),
+                (self.line.x2, max(0, self.line.y2 - self.line.offset)),
+                (148, 163, 184),
+                1
+            )
+            cv2.line(
+                frame,
+                (self.line.x1, self.line.y1 + self.line.offset),
+                (self.line.x2, self.line.y2 + self.line.offset),
+                (148, 163, 184),
+                1
+            )
 
         # Bounding box dan Track ID orang
         for t in tracks:
             x1, y1, x2, y2 = t["bbox"]
             tid = t["track_id"]
             cx, cy = t["centroid"]
+            conf = t.get("confidence", 0.0)
+            traj = t.get("trajectory", [])
+
+            # Gambar garis jejak pergerakan (trajectory trail) seperti pada ByteTrack & Temple Counter
+            if len(traj) > 1:
+                for i in range(1, len(traj)):
+                    alpha = i / len(traj)
+                    color = (int(16 * alpha), int(185 * alpha), int(129 * alpha))
+                    cv2.line(frame, traj[i - 1], traj[i], color, 2)
 
             # Bounding box orang (Hijau Cerah)
             cv2.rectangle(frame, (x1, y1), (x2, y2), (16, 185, 129), 2)
             cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)
 
-            # Label Track ID
-            cv2.rectangle(frame, (x1, max(0, y1 - 22)), (x1 + 75, max(22, y1)), (15, 23, 42), -1)
+            # Label Track ID & Tingkat Kepercayaan Deteksi (%)
+            conf_pct = int(conf * 100)
+            label = f"Tamu #{tid} {conf_pct}%"
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.42, 1)
+
+            cv2.rectangle(frame, (x1, max(0, y1 - th - 8)), (x1 + tw + 10, max(th + 8, y1)), (15, 23, 42), -1)
             cv2.putText(
                 frame,
-                f"Tamu #{tid}",
-                (x1 + 4, max(16, y1 - 6)),
+                label,
+                (x1 + 5, max(th + 2, y1 - 4)),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 0.42,
                 (255, 255, 255),
                 1
             )
 
-        # Overlay HUD Panel di kiri atas
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (15, 15), (260, 105), (15, 23, 42), -1)
-        cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
-        cv2.rectangle(frame, (15, 15), (260, 105), (51, 65, 85), 1)
+        # Overlay HUD Panel di desktop GUI (hanya jika mode --show aktif agar video web tetap bersih & jernih)
+        if self.config.show_preview:
+            h_panel = 125 if not self.is_open else 105
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (15, 15), (285, h_panel), (15, 23, 42), -1)
+            cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+            cv2.rectangle(frame, (15, 15), (285, h_panel), (51, 65, 85), 1)
 
-        cv2.putText(frame, f"MASUK   : {self.total_in}", (30, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (16, 185, 129), 2)
-        cv2.putText(frame, f"KELUAR  : {self.total_out}", (30, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (59, 130, 246), 2)
-        cv2.putText(frame, f"LIVE @ {current_fps:.1f} FPS", (30, 94), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (148, 163, 184), 1)
+            cv2.putText(frame, f"MASUK   : {self.total_in}", (30, 42), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (16, 185, 129), 2)
+            cv2.putText(frame, f"KELUAR  : {self.total_out}", (30, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.58, (59, 130, 246), 2)
+            cv2.putText(frame, f"LIVE @ {current_fps:.1f} FPS", (30, 94), cv2.FONT_HERSHEY_SIMPLEX, 0.42, (148, 163, 184), 1)
+            if not self.is_open:
+                cv2.putText(frame, f"STATUS  : {self.operating_status_text}", (30, 116), cv2.FONT_HERSHEY_SIMPLEX, 0.38, (0, 165, 255), 1)

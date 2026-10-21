@@ -71,8 +71,8 @@ include __DIR__ . '/includes/header.php';
 <!-- Title & Action Buttons -->
 <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
     <div>
-        <h2 class="text-2xl font-bold tracking-tight text-slate-900">Catatan Pengunjung Masuk & Keluar</h2>
-        <p class="text-xs text-slate-500 mt-1">Daftar setiap pengunjung yang lewat melalui pintu yang dipantau kamera CCTV.</p>
+        <h2 class="text-2xl font-bold tracking-tight text-slate-900"><?= __('hist_title') ?></h2>
+        <p class="text-xs text-slate-500 mt-1"><?= __('hist_subtitle') ?></p>
     </div>
 
     <!-- Export Action Buttons -->
@@ -80,13 +80,13 @@ include __DIR__ . '/includes/header.php';
         <!-- Unduh Excel -->
         <a href="<?= htmlspecialchars($excelUrl) ?>" class="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-semibold shadow-sm transition-all" title="Unduh format spreadsheet Microsoft Excel">
             <i data-lucide="sheet" class="w-4 h-4"></i>
-            <span>Unduh Excel (.xls)</span>
+            <span><?= __('btn_download_excel') ?></span>
         </a>
 
         <!-- Cetak / Unduh PDF -->
         <a href="<?= htmlspecialchars($pdfUrl) ?>" target="_blank" class="inline-flex items-center gap-2 px-3.5 py-2.5 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-xs font-semibold shadow-sm shadow-orange-500/20 transition-all" title="Buka pratinjau dokumen laporan resmi & simpan ke PDF">
             <i data-lucide="printer" class="w-4 h-4"></i>
-            <span>Cetak / PDF</span>
+            <span><?= __('btn_print_pdf') ?></span>
         </a>
 
         <!-- CSV (Opsional) -->
@@ -102,19 +102,19 @@ include __DIR__ . '/includes/header.php';
     <form method="GET" action="history.php" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <!-- Filter Arah -->
         <div>
-            <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Arah Melintas</label>
+            <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1"><?= __('filter_direction') ?></label>
             <select name="direction" onchange="this.form.submit()" class="w-full text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-orange-500">
-                <option value="">Semua Arah (IN & OUT)</option>
-                <option value="IN" <?= $direction === 'IN' ? 'selected' : '' ?>>Masuk (IN)</option>
-                <option value="OUT" <?= $direction === 'OUT' ? 'selected' : '' ?>>Keluar (OUT)</option>
+                <option value=""><?= __('all_directions') ?></option>
+                <option value="IN" <?= $direction === 'IN' ? 'selected' : '' ?>><?= __('dir_in_only') ?></option>
+                <option value="OUT" <?= $direction === 'OUT' ? 'selected' : '' ?>><?= __('dir_out_only') ?></option>
             </select>
         </div>
 
         <!-- Filter Kamera -->
         <div>
-            <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Kamera CCTV</label>
+            <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1"><?= __('filter_cctv_cam') ?></label>
             <select name="camera_id" onchange="this.form.submit()" class="w-full text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-orange-500">
-                <option value="all">Semua Kamera</option>
+                <option value="all"><?= __('all_cameras') ?></option>
                 <?php foreach ($cameras as $cam): ?>
                     <option value="<?= htmlspecialchars($cam['id']) ?>" <?= $cameraId === $cam['id'] ? 'selected' : '' ?>>
                         <?= htmlspecialchars($cam['name']) ?>
@@ -125,18 +125,18 @@ include __DIR__ . '/includes/header.php';
 
         <!-- Pencarian Kata Kunci -->
         <div>
-            <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1">Pencarian (Track ID / Lokasi)</label>
-            <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="Misal: 12 atau Lantai 2"
+            <label class="block text-[11px] font-semibold text-slate-500 uppercase mb-1"><?= __('filter_search') ?></label>
+            <input type="text" name="search" value="<?= htmlspecialchars($search) ?>" placeholder="<?= __('search_placeholder') ?>"
                    class="w-full text-xs font-medium bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-700 focus:outline-none focus:border-orange-500">
         </div>
 
         <!-- Tombol Filter -->
         <div class="flex items-end gap-2">
             <button type="submit" class="flex-1 py-2 px-3 bg-slate-800 hover:bg-slate-900 text-white rounded-xl text-xs font-semibold transition-all">
-                Cari Data
+                <?= __('btn_search_data') ?>
             </button>
             <a href="history.php" class="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold transition-all" title="Reset Filter">
-                Reset
+                <?= __('btn_reset') ?>
             </a>
         </div>
     </form>
@@ -145,20 +145,20 @@ include __DIR__ . '/includes/header.php';
 <!-- Table Card -->
 <div class="bg-white rounded-3xl border border-slate-200/80 shadow-sm overflow-hidden">
     <div class="p-4 border-b border-slate-100 flex items-center justify-between text-xs text-slate-500">
-        <span>Menampilkan <strong><?= number_format(count($records)) ?></strong> dari <strong><?= number_format($total) ?></strong> total kejadian</span>
-        <span>Halaman <strong><?= $page ?></strong> dari <strong><?= $totalPages ?></strong></span>
+        <span><?= __('showing_records') ?> <strong><?= number_format(count($records)) ?></strong> <?= __('of_records') ?> <strong><?= number_format($total) ?></strong> <?= __('total_guest_records') ?></span>
+        <span><?= __('page_label') ?> <strong><?= $page ?></strong> <?= __('of_records') ?> <strong><?= $totalPages ?></strong></span>
     </div>
 
     <div class="overflow-x-auto">
         <table class="w-full text-left text-xs">
             <thead>
                 <tr class="bg-slate-50/80 border-b border-slate-100 text-slate-500 uppercase font-semibold text-[10px]">
-                    <th class="py-3 px-4">Waktu (WIB)</th>
-                    <th class="py-3 px-4">Nama CCTV</th>
-                    <th class="py-3 px-4">Arah Melintas</th>
-                    <th class="py-3 px-4 text-center">Track ID</th>
-                    <th class="py-3 px-4 text-center">Confidence</th>
-                    <th class="py-3 px-4 text-center">Mode</th>
+                    <th class="py-3 px-4"><?= __('th_visit_time') ?></th>
+                    <th class="py-3 px-4"><?= __('th_cctv_name') ?></th>
+                    <th class="py-3 px-4"><?= __('th_cross_direction') ?></th>
+                    <th class="py-3 px-4 text-center"><?= __('th_guest_id') ?></th>
+                    <th class="py-3 px-4 text-center"><?= __('th_ai_accuracy') ?></th>
+                    <th class="py-3 px-4 text-center"><?= __('th_mode') ?></th>
                 </tr>
             </thead>
             <tbody class="divide-y divide-slate-100 text-slate-700">
@@ -166,7 +166,7 @@ include __DIR__ . '/includes/header.php';
                     <tr>
                         <td colspan="6" class="py-12 text-center text-slate-400">
                             <i data-lucide="inbox" class="w-8 h-8 mx-auto text-slate-300 mb-2"></i>
-                            Tidak ada data penyeberangan yang sesuai dengan filter.
+                            <?= __('no_data_history') ?>
                         </td>
                     </tr>
                 <?php else: ?>
@@ -176,16 +176,16 @@ include __DIR__ . '/includes/header.php';
                                 <?= date('d M Y, H:i:s', strtotime($r['event_timestamp'])) ?>
                             </td>
                             <td class="py-3 px-4 text-slate-600 font-medium">
-                                <?= htmlspecialchars($r['camera_name'] ?: 'CCTV Pintu Masuk') ?>
+                                <?= htmlspecialchars($r['camera_name'] ?: 'CCTV') ?>
                             </td>
                             <td class="py-3 px-4">
                                 <?php if ($r['direction'] === 'IN'): ?>
                                     <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                                        <i data-lucide="arrow-down-left" class="w-3.5 h-3.5"></i> MASUK (IN)
+                                        <i data-lucide="arrow-down-left" class="w-3.5 h-3.5"></i> <?= __('badge_in') ?> (IN)
                                     </span>
                                 <?php else: ?>
                                     <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-semibold bg-blue-50 text-blue-700 border border-blue-200">
-                                        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i> KELUAR (OUT)
+                                        <i data-lucide="arrow-up-right" class="w-3.5 h-3.5"></i> <?= __('badge_out') ?> (OUT)
                                     </span>
                                 <?php endif; ?>
                             </td>
@@ -217,7 +217,7 @@ include __DIR__ . '/includes/header.php';
             $nextUrl = "history.php?" . http_build_query(array_merge($_GET, ['page' => min($totalPages, $page + 1)]));
             ?>
             <a href="<?= $page > 1 ? htmlspecialchars($prevUrl) : '#' ?>" class="px-3 py-1.5 rounded-lg border border-slate-200 <?= $page > 1 ? 'hover:bg-slate-50 text-slate-700' : 'text-slate-300 pointer-events-none' ?>">
-                &larr; Sebelumnya
+                &larr; <?= __('btn_prev') ?>
             </a>
 
             <div class="flex items-center gap-1">
@@ -230,7 +230,7 @@ include __DIR__ . '/includes/header.php';
             </div>
 
             <a href="<?= $page < $totalPages ? htmlspecialchars($nextUrl) : '#' ?>" class="px-3 py-1.5 rounded-lg border border-slate-200 <?= $page < $totalPages ? 'hover:bg-slate-50 text-slate-700' : 'text-slate-300 pointer-events-none' ?>">
-                Selanjutnya &rarr;
+                <?= __('btn_next') ?> &rarr;
             </a>
         </div>
     <?php endif; ?>

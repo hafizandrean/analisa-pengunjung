@@ -17,6 +17,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
 }
 
 require_once __DIR__ . '/../config/database.php';
+require_once __DIR__ . '/../config/settings.php';
 
 try {
     $pdo = getDBConnection();
@@ -104,7 +105,18 @@ if ($method === 'POST') {
     $countVal = (int)($data['count_value'] ?? 1);
     $trackId = isset($data['track_id']) ? (int)$data['track_id'] : null;
     $confidence = isset($data['confidence']) ? (float)$data['confidence'] : 0.85;
-    $timestamp = $data['event_timestamp'] ?? date('Y-m-d H:i:s');
+    // Konversi timestamp ke waktu lokal server sesuai zona waktu aktif
+    if (!empty($data['event_timestamp'])) {
+        try {
+            $dt = new DateTime($data['event_timestamp']);
+            $dt->setTimezone(new DateTimeZone(date_default_timezone_get()));
+            $timestamp = $dt->format('Y-m-d H:i:s');
+        } catch (Exception $e) {
+            $timestamp = date('Y-m-d H:i:s');
+        }
+    } else {
+        $timestamp = date('Y-m-d H:i:s');
+    }
     $sourceMode = $data['source_mode'] ?? 'LIVE';
     $metadata = isset($data['metadata_json']) ? (is_string($data['metadata_json']) ? $data['metadata_json'] : json_encode($data['metadata_json'])) : null;
 

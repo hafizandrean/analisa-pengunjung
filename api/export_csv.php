@@ -59,7 +59,7 @@ try {
     fprintf($output, chr(0xEF).chr(0xBB).chr(0xBF));
 
     // Header baris CSV
-    fputcsv($output, ['Waktu Kejadian (WIB)', 'Nama CCTV / Lokasi', 'Arah (IN/OUT)', 'Jumlah', 'Track ID', 'Tingkat Keyakinan (Confidence)', 'Mode Sumber']);
+    fputcsv($output, ['Waktu Kunjungan (WIB)', 'Nama CCTV / Lokasi', 'Arah (IN/OUT)', 'Jumlah', 'ID Tamu', 'Akurasi AI', 'Mode Sumber']);
 
     foreach ($rows as $row) {
         fputcsv($output, [

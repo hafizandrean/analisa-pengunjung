@@ -58,6 +58,11 @@ class ByteTrackTracker:
             conf = float(box.conf[0].cpu().numpy())
 
             x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
+            
+            # Filter objek terlalu kecil (noise / bayangan) sesuai standar referensi
+            if (x2 - x1) < 20 or (y2 - y1) < 45:
+                continue
+
             cx = (x1 + x2) // 2
             cy = (y1 + y2) // 2
 

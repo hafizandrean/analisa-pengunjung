@@ -100,11 +100,11 @@ try {
     // Table Headers
     echo '<tr>';
     echo '<th style="width: 50px;" class="text-center">No</th>';
-    echo '<th style="width: 180px;">Waktu Kejadian (WIB)</th>';
+    echo '<th style="width: 180px;">Waktu Kunjungan (WIB)</th>';
     echo '<th style="width: 220px;">Kamera CCTV / Lokasi</th>';
     echo '<th style="width: 130px;" class="text-center">Arah Melintas</th>';
-    echo '<th style="width: 90px;" class="text-center">Track ID</th>';
-    echo '<th style="width: 110px;" class="text-center">Tingkat Keyakinan</th>';
+    echo '<th style="width: 90px;" class="text-center">ID Tamu</th>';
+    echo '<th style="width: 110px;" class="text-center">Akurasi AI</th>';
     echo '<th style="width: 100px;" class="text-center">Mode Sumber</th>';
     echo '</tr>';
 

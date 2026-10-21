@@ -48,6 +48,18 @@ class FrameBuffer:
         with self.lock:
             return dict(self.stats)
 
+    def reset_counters(self):
+        with self.lock:
+            self.stats["total_in"] = 0
+            self.stats["total_out"] = 0
+            self.stats["reset_requested"] = True
+
+    def set_store_status(self, is_open: bool):
+        with self.lock:
+            self.stats["is_open"] = is_open
+            self.stats["manual_store_status"] = "open" if is_open else "closed"
+            self.stats["status_override_time"] = time.time()
+
 
 GLOBAL_FRAME_BUFFER = FrameBuffer()
 
@@ -106,6 +118,39 @@ class StreamHandler(BaseHTTPRequestHandler):
                 self.send_header('Content-Type', 'text/plain')
                 self.end_headers()
                 self.wfile.write(b'Kamera belum siap')
+
+        elif self.path.startswith('/set_store_status'):
+            from urllib.parse import urlparse, parse_qs
+            parsed = urlparse(self.path)
+            params = parse_qs(parsed.query)
+            status_param = params.get('status', ['open'])[0]
+            is_open = (status_param.lower() in ['open', '1', 'true', 'buka'])
+            GLOBAL_FRAME_BUFFER.set_store_status(is_open)
+
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"success": True, "is_open": is_open, "store_status": "open" if is_open else "closed"}).encode('utf-8'))
+
+        elif self.path.startswith('/reset'):
+            GLOBAL_FRAME_BUFFER.reset_counters()
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"success": true, "message": "Counters reset to 0"}')
+
+        elif self.path.startswith('/shutdown') or self.path.startswith('/stop'):
+            self.send_response(200)
+            self.send_header('Access-Control-Allow-Origin', '*')
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(b'{"success": true, "message": "Worker stream stopping"}')
+            
+            # Matikan proses python di thread terpisah agar response HTTP sempat terkirim
+            import os
+            threading.Thread(target=lambda: (time.sleep(0.3), os._exit(0)), daemon=True).start()
 
         elif self.path.startswith('/status'):
             stats = GLOBAL_FRAME_BUFFER.get_stats()
