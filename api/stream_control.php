@@ -31,7 +31,7 @@ function checkStreamStatus($url) {
 
     if ($httpCode === 200 && $response) {
         $json = json_decode($response, true);
-        if ($json && !empty($json['is_active'])) {
+        if ($json && (!empty($json['is_active']) || in_array($json['status'] ?? '', ['running', 'reconnecting']))) {
             return ['running' => true, 'stats' => $json];
         }
     }
@@ -101,8 +101,8 @@ if ($method === 'POST') {
         }
 
         if (strtoupper(substr(PHP_OS, 0, 3)) === 'WIN') {
-            $psCmd = "powershell -WindowStyle Hidden -Command \"Start-Process '{$pyPath}' -ArgumentList '\\\"{$script}\\\" --camera-id={$cameraId}' -WorkingDirectory '{$rootDir}' -WindowStyle Hidden\"";
-            pclose(popen($psCmd, 'r'));
+            $psCmd = "powershell -WindowStyle Hidden -Command \"Start-Process '{$pyPath}' -ArgumentList 'vision/worker_php.py --camera-id={$cameraId}' -WorkingDirectory '{$rootDir}' -WindowStyle Hidden\"";
+            exec($psCmd);
         } else {
             exec("python \"{$script}\" --camera-id={$cameraId} > /dev/null 2>&1 &");
         }

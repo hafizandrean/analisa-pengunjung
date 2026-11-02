@@ -30,6 +30,7 @@ class YOLOPeopleDetector:
             classes=[self.target_class_id],
             conf=self.conf,
             iou=self.iou,
+            imgsz=640,
             verbose=False
         )
 

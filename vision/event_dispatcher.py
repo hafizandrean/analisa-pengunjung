@@ -37,10 +37,13 @@ class BackendEventDispatcher:
         track_id: int,
         confidence: float,
         source_mode: str = "VIDEO",
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        snapshot_path: Optional[str] = None,
+        event_id: Optional[str] = None
     ) -> bool:
         """Menambahkan event ke antrian pengiriman."""
         payload = {
+            "event_id": event_id,
             "camera_id": camera_id,
             "session_id": session_id,
             "event_timestamp": timestamp_iso,
@@ -49,7 +52,8 @@ class BackendEventDispatcher:
             "track_id": track_id,
             "confidence": round(confidence, 3),
             "source_mode": source_mode,
-            "metadata_json": metadata or {}
+            "metadata_json": metadata or {},
+            "snapshot_path": snapshot_path
         }
         try:
             self.event_queue.put_nowait(payload)

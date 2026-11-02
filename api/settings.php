@@ -26,7 +26,10 @@ $allowedKeys = [
     'capacity_dine_in', 'daily_target',
     'opening_time', 'closing_time', 'operating_hours_filter', 'auto_operating_hours',
     'store_status', 'detection_sound', 'restaurant_logo',
-    'logo_scale', 'logo_shape', 'logo_bg'
+    'logo_scale', 'logo_shape', 'logo_bg',
+    'evidence_storage_mode', 'evidence_retention_days',
+    'r2_bucket', 'r2_account_id', 'r2_public_domain',
+    'r2_access_key_id', 'r2_secret_access_key'
 ];
 
 $tzLabels = [

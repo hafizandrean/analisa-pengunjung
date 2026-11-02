@@ -19,10 +19,61 @@ if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     exit;
 }
 
+/**
+ * Mengambil metadata profil & URL RTSP terotentikasi langsung dari layanan ONVIF kamera
+ */
+function resolveOnvifDevice($ip, $port = 8899) {
+    $postSoap = function($url, $xml) {
+        $ch = curl_init($url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_POST, true);
+        curl_setopt($ch, CURLOPT_POSTFIELDS, $xml);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, [
+            'Content-Type: application/soap+xml; charset=utf-8'
+        ]);
+        $res = curl_exec($ch);
+        curl_close($ch);
+        return $res;
+    };
+
+    $info = ['model' => '', 'serial' => '', 'rtsp_uri' => ''];
+
+    // 1. Dapatkan info perangkat
+    $devXml = $postSoap("http://{$ip}:{$port}/onvif/device_service", '<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:tds="http://www.onvif.org/ver10/device/wsdl"><soap:Body><tds:GetDeviceInformation /></soap:Body></soap:Envelope>');
+    if ($devXml) {
+        if (preg_match('/<tds:Model>([^<]+)<\/tds:Model>/', $devXml, $m)) $info['model'] = trim($m[1]);
+        if (preg_match('/<tds:SerialNumber>([^<]+)<\/tds:SerialNumber>/', $devXml, $m)) $info['serial'] = trim($m[1]);
+    }
+
+    // 2. Dapatkan Stream URI (Sub-stream profile 001 untuk performa hemat bandwidth)
+    $mediaXml = $postSoap("http://{$ip}:{$port}/onvif/media_service", '<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema"><soap:Body><trt:GetStreamUri><trt:StreamSetup><tt:Stream>RTP-Unicast</tt:Stream><tt:Transport><tt:Protocol>RTSP</tt:Protocol></tt:Transport></trt:StreamSetup><trt:ProfileToken>001</trt:ProfileToken></trt:GetStreamUri></soap:Body></soap:Envelope>');
+    if ($mediaXml && preg_match('/<tt:Uri>([^<]+)<\/tt:Uri>/', $mediaXml, $m)) {
+        $info['rtsp_uri'] = html_entity_decode(trim($m[1]));
+    } else {
+        // Fallback coba profile 000 (mainStream)
+        $mediaXml0 = $postSoap("http://{$ip}:{$port}/onvif/media_service", '<?xml version="1.0" encoding="utf-8"?><soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema"><soap:Body><trt:GetStreamUri><trt:StreamSetup><tt:Stream>RTP-Unicast</tt:Stream><tt:Transport><tt:Protocol>RTSP</tt:Protocol></tt:Transport></trt:StreamSetup><trt:ProfileToken>000</trt:ProfileToken></trt:GetStreamUri></soap:Body></soap:Envelope>');
+        if ($mediaXml0 && preg_match('/<tt:Uri>([^<]+)<\/tt:Uri>/', $mediaXml0, $m)) {
+            $info['rtsp_uri'] = html_entity_decode(trim($m[1]));
+        }
+    }
+
+    return $info;
+}
+
 $method = $_SERVER['REQUEST_METHOD'];
 
 // Daftar Preset Merek CCTV Populer
 $cctvPresets = [
+    'XIONGMAI' => [
+        'name' => 'CCTV Toko (XiongMai / XMeye / Topsvision / SPC)',
+        'type' => 'RTSP',
+        'default_port' => 554,
+        'format' => 'rtsp://{ip}:{port}/user={username}_password={password}_channel={channel}_stream=1&onvif=0.sdp?real_stream',
+        'description' => 'Format terotentikasi ONVIF resmi untuk CCTV toko (XMeye, Topsvision, H264DVR).',
+        'help' => 'Channel 0 (Kamera 1), Stream 1 (Sub-stream stabil hemat Wi-Fi).'
+    ],
     'HIKVISION' => [
         'name' => 'Hikvision / HiLook / Ezviz',
         'type' => 'RTSP',
@@ -54,14 +105,6 @@ $cctvPresets = [
         'format' => 'rtsp://{username}:{password}@{ip}:{port}/live/ch0',
         'description' => 'Kamera pintar berbasis Tuya / Bardi Smart Home.',
         'help' => 'Pastikan fitur ONVIF/PC View aktif di aplikasi Bardi.'
-    ],
-    'XIONGMAI' => [
-        'name' => 'XiongMai / XMeye / Topsvision / SPC',
-        'type' => 'RTSP',
-        'default_port' => 554,
-        'format' => 'rtsp://{username}:{password}@{ip}:{port}/user={username}_password={password}_channel={channel}_stream=0.sdp',
-        'description' => 'DVR/NVR populer merek XiongMai, Topsvision, XMeye, SPC, dan Glenz.',
-        'help' => 'Format standar XMeye: /user={user}_password={pass}_channel=1_stream=0.sdp'
     ],
     'UNIVIEW' => [
         'name' => 'Uniview (UNV)',
@@ -314,7 +357,33 @@ if ($method === 'POST') {
 
         // 3. Uji port kamera untuk setiap kandidat IP eksternal
         foreach (array_keys($candidates) as $targetIp) {
-            // Port 554: Standar RTSP (Hikvision, Dahua, Tapo, Bardi, XMeye)
+            // A. Port 8899: ONVIF Device & Media Service (Xiongmai / Topsvision / XMeye / Dahua / Generic IP Cam)
+            $fpOnvif = @fsockopen($targetIp, 8899, $errno, $errstr, 0.15);
+            if ($fpOnvif) {
+                fclose($fpOnvif);
+                
+                // Query metadata & authenticated URI secara otomatis via SOAP ONVIF
+                $onvifData = resolveOnvifDevice($targetIp, 8899);
+                $brandName = 'CCTV Xiongmai / XMeye';
+                if (!empty($onvifData['model'])) {
+                    $brandName = "CCTV {$onvifData['model']}";
+                }
+                if (!empty($onvifData['serial'])) {
+                    $brandName .= " (SN: {$onvifData['serial']})";
+                }
+
+                $discovered[] = [
+                    'ip' => $targetIp,
+                    'port' => 8899,
+                    'type' => 'RTSP',
+                    'brand_guess' => $brandName,
+                    'service' => 'Siaran Video CCTV ONVIF',
+                    'default_uri' => $onvifData['rtsp_uri'] ?: "rtsp://{$targetIp}:554/live"
+                ];
+                continue;
+            }
+
+            // B. Port 554: Standar RTSP (Hikvision, Dahua, Tapo, Bardi, XMeye)
             $fp = @fsockopen($targetIp, 554, $errno, $errstr, 0.12);
             if ($fp) {
                 fclose($fp);

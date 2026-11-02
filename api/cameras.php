@@ -91,6 +91,30 @@ try {
             exit;
         }
 
+        if ($action === 'update_camera') {
+            $cameraId = $input['camera_id'] ?? null;
+            $name = $input['name'] ?? null;
+            $location = $input['location'] ?? null;
+            $sourceUri = $input['source_uri'] ?? null;
+            if (!$cameraId || !$sourceUri) {
+                http_response_code(422);
+                echo json_encode(['error' => 'camera_id and source_uri required']);
+                exit;
+            }
+            $stmt = $pdo->prepare("UPDATE cameras SET name = COALESCE(?, name), location = COALESCE(?, location), source_uri = ? WHERE id = ?");
+            $stmt->execute([$name, $location, $sourceUri, $cameraId]);
+
+            // Hentikan worker lama jika sedang mencoba koneksi dengan kredensial lama
+            $ch = curl_init("http://127.0.0.1:8080/shutdown");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 1);
+            @curl_exec($ch);
+            curl_close($ch);
+
+            echo json_encode(['success' => true, 'message' => 'Pengaturan kamera berhasil diperbarui']);
+            exit;
+        }
+
         if ($action === 'delete_camera') {
             $cameraId = $input['camera_id'] ?? null;
             if (!$cameraId) {
@@ -98,6 +122,13 @@ try {
                 echo json_encode(['error' => 'camera_id required']);
                 exit;
             }
+            // Hentikan worker jika kamera yang dihapus sedang aktif
+            $ch = curl_init("http://127.0.0.1:8080/shutdown");
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 1);
+            @curl_exec($ch);
+            curl_close($ch);
+
             $stmt = $pdo->prepare("DELETE FROM cameras WHERE id = ?");
             $stmt->execute([$cameraId]);
             echo json_encode(['success' => true, 'message' => 'Kamera berhasil dihapus']);

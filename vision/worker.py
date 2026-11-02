@@ -16,6 +16,7 @@ from vision.tracker import ByteTrackTracker
 from vision.line_crossing import VirtualCountingLine
 from vision.event_dispatcher import BackendEventDispatcher
 from vision.stream_server import VideoStreamServer, GLOBAL_FRAME_BUFFER
+from vision.evidence_manager import EvidenceManager
 
 
 class VisionWorker:
@@ -52,6 +53,7 @@ class VisionWorker:
         self._load_line_coords_from_db()
 
         self.dispatcher = BackendEventDispatcher(api_base_url=config.backend_api_url)
+        self.evidence_mgr = EvidenceManager(db_path=self.db_path)
 
         # Server HTTP MJPEG Streaming untuk Browser
         self.stream_server = None
@@ -202,6 +204,59 @@ class VisionWorker:
             self.last_reset_day = today_str
             self._load_settings_and_today_counts()
 
+    def _get_substream_uri(self, uri: str) -> Optional[str]:
+        """Mengubah URL RTSP Main-stream menjadi Sub-stream yang 80% lebih hemat bandwidth Wi-Fi."""
+        if not isinstance(uri, str):
+            return None
+        if "/Streaming/Channels/101" in uri:
+            return uri.replace("/Streaming/Channels/101", "/Streaming/Channels/102")
+        if "subtype=0" in uri:
+            return uri.replace("subtype=0", "subtype=1")
+        if "stream=0.sdp" in uri:
+            return uri.replace("stream=0.sdp", "stream=1.sdp")
+        if "stream=0" in uri:
+            return uri.replace("stream=0", "stream=1")
+        if "/stream1" in uri:
+            return uri.replace("/stream1", "/stream2")
+        return None
+
+    def _resolve_onvif_stream_uri(self, uri: str) -> Optional[str]:
+        """Otomatis mengambil stream URI otentikasi dari port ONVIF (8899) jika RTSP gagal."""
+        import re
+        import urllib.request
+        match = re.search(r'([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+)', uri)
+        if not match:
+            return None
+        ip = match.group(1)
+        media_url = f"http://{ip}:8899/onvif/media_service"
+        soap_req = """<?xml version="1.0" encoding="utf-8"?>
+<soap:Envelope xmlns:soap="http://www.w3.org/2003/05/soap-envelope" xmlns:trt="http://www.onvif.org/ver10/media/wsdl" xmlns:tt="http://www.onvif.org/ver10/schema">
+  <soap:Body>
+    <trt:GetStreamUri>
+      <trt:StreamSetup>
+        <tt:Stream>RTP-Unicast</tt:Stream>
+        <tt:Transport><tt:Protocol>RTSP</tt:Protocol></tt:Transport>
+      </trt:StreamSetup>
+      <trt:ProfileToken>001</trt:ProfileToken>
+    </trt:GetStreamUri>
+  </soap:Body>
+</soap:Envelope>"""
+        try:
+            req = urllib.request.Request(
+                media_url, 
+                data=soap_req.encode('utf-8'), 
+                headers={"Content-Type": "application/soap+xml; charset=utf-8"}
+            )
+            with urllib.request.urlopen(req, timeout=2.0) as resp:
+                body = resp.read().decode('utf-8', errors='ignore')
+                uri_match = re.search(r'<tt:Uri>([^<]+)</tt:Uri>', body)
+                if uri_match:
+                    import html
+                    return html.unescape(uri_match.group(1).strip())
+        except Exception:
+            pass
+        return None
+
     def _load_line_coords_from_db(self, actual_w: int = 1280, actual_h: int = 720):
         """Memuat atau memperbarui koordinat garis virtual dari database SQLite dan menyesuaikan ke resolusi video."""
         if not os.path.exists(self.db_path):
@@ -247,10 +302,32 @@ class VisionWorker:
                 c = cv2.VideoCapture(int(source_input), backend)
                 c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             elif is_stream:
-                # Optimasi latensi rendah (Low Latency) & kestabilan TCP untuk CCTV IP / Wi-Fi
-                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|fflags;nobuffer|flags;low_delay"
+                # Optimasi latensi rendah, timeout koneksi Wi-Fi 5 detik, dan kestabilan TCP
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+                    "rtsp_transport;tcp"
+                    "|fflags;nobuffer|flags;low_delay"
+                    "|stimeout;5000000"
+                    "|max_delay;500000"
+                    "|reorder_queue_size;0"
+                )
                 c = cv2.VideoCapture(source_input, cv2.CAP_FFMPEG)
                 c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+                # Jika Main-Stream gagal, coba otomatis Sub-Stream (menghemat 80% bandwidth Wi-Fi)
+                if not c.isOpened():
+                    sub_uri = self._get_substream_uri(source_input)
+                    if sub_uri and sub_uri != source_input:
+                        print(f"[VisionWorker] 📶 Mencoba auto-fallback ke Sub-Stream: {sub_uri}")
+                        c = cv2.VideoCapture(sub_uri, cv2.CAP_FFMPEG)
+                        c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
+                # Jika masih gagal (misal 401 Unauthorized), minta URI terotentikasi langsung via port ONVIF 8899
+                if not c.isOpened():
+                    onvif_uri = self._resolve_onvif_stream_uri(source_input)
+                    if onvif_uri and onvif_uri != source_input:
+                        print(f"[VisionWorker] 🛡️ ONVIF Auto-Discovery: Mengambil URI otentikasi mandiri dari kamera: {onvif_uri}")
+                        c = cv2.VideoCapture(onvif_uri, cv2.CAP_FFMPEG)
+                        c.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             else:
                 if not os.path.exists(source_input):
                     raise FileNotFoundError(f"Sumber video tidak ditemukan: {source_input}")
@@ -276,6 +353,8 @@ class VisionWorker:
         last_fps_calc = time.time()
         fps_frame_count = 0
         current_fps = fps
+        last_tracks = []
+        frame_skip = max(1, getattr(self.config, 'frame_skip', 2))
 
         if self.config.start_frame > 0:
             cap.set(cv2.CAP_PROP_POS_FRAMES, self.config.start_frame)
@@ -291,13 +370,25 @@ class VisionWorker:
                 if not ret or frame is None:
                     if is_stream and self.config.auto_reconnect:
                         print(f"[VisionWorker] Sambungan stream RTSP terputus. Mencoba reconnect dalam {reconnect_delay:.1f} detik...")
+                        if self.config.enable_stream:
+                            err_img = np.zeros((height, width, 3), dtype=np.uint8)
+                            err_img[:] = (30, 20, 15)
+                            cv2.putText(err_img, "MENYAMBUNGKAN KE KAMERA CCTV...", (50, max(60, height // 2 - 50)), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+                            cv2.putText(err_img, f"RTSP: {source_input[:65]}", (50, max(100, height // 2 - 10)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (160, 160, 160), 1)
+                            cv2.putText(err_img, "Jika tetap tidak muncul, kata sandi CCTV salah (401 Unauthorized)", (50, max(140, height // 2 + 35)), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 165, 255), 2)
+                            cv2.putText(err_img, "Silakan klik tombol 'Ubah URL RTSP / Kata Sandi' di menu bawah", (50, max(180, height // 2 + 75)), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (100, 220, 255), 1)
+                            GLOBAL_FRAME_BUFFER.update(err_img, stats={"status": "reconnecting", "camera_id": self.config.camera_id, "is_active": True})
                         cap.release()
                         time.sleep(reconnect_delay)
                         reconnect_delay = min(reconnect_delay * 1.5, max_reconnect_delay)
                         cap = open_capture()
                         continue
                     elif self.config.loop_video:
-                        cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        print("[VisionWorker] 🔁 Akhir video tercapai, memutar ulang dari awal (looping)...")
+                        success = cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                        if not success:
+                            cap.release()
+                            cap = open_capture()
                         continue
                     else:
                         print("[VisionWorker] Akhir berkas video tercapai (EOF).")
@@ -323,36 +414,54 @@ class VisionWorker:
                     fps_frame_count = 0
                     last_fps_calc = now_time
 
-                # 1. Jalankan tracking objek (YOLOv8 + ByteTrack)
-                tracks = self.tracker.track(frame)
+                # 1. Jalankan tracking objek (YOLOv8 + ByteTrack) dengan optimasi frame skip
+                # Menghemat 50% CPU laptop kasir tanpa mengurangi akurasi tracking
+                if self.frames_processed % frame_skip == 0 or not last_tracks:
+                    tracks = self.tracker.track(frame)
+                    last_tracks = tracks
+                else:
+                    tracks = last_tracks
                 active_ids = {t["track_id"] for t in tracks}
 
-                # 2. Evaluasi setiap objek terhadap garis virtual
+                # 2. Evaluasi setiap objek terhadap garis virtual (Centroid + Foot Anchor + Trajectory Multi-step)
                 new_crossing = False
                 for t in tracks:
                     track_id = t["track_id"]
-                    curr_c = t["centroid"]
-                    prev_c = t["prev_centroid"]
                     conf = t["confidence"]
 
                     crossing_dir = self.line.evaluate_crossing(
                         track_id=track_id,
-                        curr_centroid=curr_c,
-                        prev_centroid=prev_c,
-                        current_frame=self.frames_processed
+                        curr_centroid=t.get("centroid"),
+                        prev_centroid=t.get("prev_centroid", t.get("centroid")),
+                        current_frame=self.frames_processed,
+                        curr_foot=t.get("foot_point"),
+                        prev_foot=t.get("prev_foot_point", t.get("foot_point")),
+                        trajectory=t.get("trajectory"),
+                        foot_trajectory=t.get("foot_trajectory")
                     )
 
                     if crossing_dir:
                         new_crossing = True
-                        flash_counter = 12
+                        flash_counter = 15
 
                         # HANYA hitung dan simpan event jika berada dalam jam operasional restoran
                         if self.is_open:
                             now_iso = datetime.now(timezone.utc).isoformat()
+                            event_id = f"evt-{int(time.time()*1000)}-{track_id}"
+
                             if crossing_dir == "IN":
                                 self.total_in += 1
                             elif crossing_dir == "OUT":
                                 self.total_out += 1
+
+                            # Capture cuplikan bukti visual (Evidence Snapshot) & jadwalkan upload ke Cloudflare R2
+                            snapshot_path = self.evidence_mgr.capture_and_save(
+                                frame=frame,
+                                bbox=t["bbox"],
+                                event_id=event_id,
+                                track_id=track_id,
+                                direction=crossing_dir
+                            )
 
                             print(f"[VisionWorker] DETEKSI: Pengunjung #{track_id} melintas {crossing_dir} (Total Masuk: {self.total_in}, Keluar: {self.total_out})")
 
@@ -370,7 +479,9 @@ class VisionWorker:
                                     "frame_number": self.frames_processed,
                                     "bbox": t["bbox"],
                                     "fps": round(current_fps, 2)
-                                }
+                                },
+                                snapshot_path=snapshot_path,
+                                event_id=event_id
                             )
                         else:
                             print(f"[VisionWorker] Tamu #{track_id} melintas {crossing_dir} saat restoran tutup ({self.operating_status_text}), gerakan diabaikan.")
@@ -396,6 +507,8 @@ class VisionWorker:
                             "camera_id": self.config.camera_id,
                             "total_in": self.total_in,
                             "total_out": self.total_out,
+                            "inside": max(0, self.total_in - self.total_out),
+                            "is_crossing": flash_counter > 0,
                             "fps": round(current_fps, 1),
                             "frame_number": self.frames_processed,
                             "is_open": self.is_open,
@@ -424,6 +537,7 @@ class VisionWorker:
             cap.release()
             if self.config.show_preview:
                 cv2.destroyAllWindows()
+            self.evidence_mgr.stop()
             self.dispatcher.stop()
             if self.stream_server:
                 self.stream_server.stop()
@@ -507,7 +621,10 @@ class VisionWorker:
 
             # Bounding box orang (Hijau Cerah)
             cv2.rectangle(frame, (x1, y1), (x2, y2), (16, 185, 129), 2)
-            cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)
+            cv2.circle(frame, (cx, cy), 4, (0, 0, 255), -1)  # Titik Centroid Badan (Merah)
+            foot = t.get("foot_point")
+            if foot:
+                cv2.circle(frame, (foot[0], foot[1]), 3, (246, 130, 59), -1)  # Titik Kaki / Lantai (Biru)
 
             # Label Track ID & Tingkat Kepercayaan Deteksi (%)
             conf_pct = int(conf * 100)

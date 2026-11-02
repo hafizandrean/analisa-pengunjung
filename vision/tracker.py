@@ -10,8 +10,8 @@ class ByteTrackTracker:
     def __init__(
         self,
         model_path: str = "vision/models/yolov8n.pt",
-        tracker_config: str = "bytetrack.yaml",
-        conf: float = 0.30,
+        tracker_config: str = "vision/bytetrack_custom.yaml",
+        conf: float = 0.25,
         iou: float = 0.45,
         max_history_len: int = 30
     ):
@@ -20,8 +20,9 @@ class ByteTrackTracker:
         self.conf = conf
         self.iou = iou
         self.max_history_len = max_history_len
-        # Menyimpan jejak koordinat centroid per track_id: {track_id: deque([(x, y), ...])}
-        self.track_trajectories: Dict[int, deque] = {}
+        # Menyimpan jejak koordinat kaki dan centroid per track_id
+        self.track_trajectories: Dict[int, deque] = {}      # foot anchor points
+        self.centroid_trajectories: Dict[int, deque] = {}   # torso/chest centroid points
         # Menghitung frame tidak terdeteksi untuk pembersihan memori
         self.track_lost_count: Dict[int, int] = {}
 
@@ -34,6 +35,7 @@ class ByteTrackTracker:
             classes=[0],  # person
             conf=self.conf,
             iou=self.iou,
+            imgsz=640,
             verbose=False
         )
 
@@ -59,30 +61,39 @@ class ByteTrackTracker:
 
             x1, y1, x2, y2 = int(xyxy[0]), int(xyxy[1]), int(xyxy[2]), int(xyxy[3])
             
-            # Filter objek terlalu kecil (noise / bayangan) sesuai standar referensi
-            if (x2 - x1) < 20 or (y2 - y1) < 45:
+            # Filter objek terlalu kecil (noise / bayangan) dengan toleransi adaptif
+            if (x2 - x1) < 12 or (y2 - y1) < 24:
                 continue
 
             cx = (x1 + x2) // 2
             cy = (y1 + y2) // 2
+            # Titik tumpu kaki di lantai (Bottom-Center Foot Anchor)
+            foot_x = cx
+            foot_y = y2
 
             current_active_ids.add(track_id)
 
             if track_id not in self.track_trajectories:
                 self.track_trajectories[track_id] = deque(maxlen=self.max_history_len)
+                self.centroid_trajectories[track_id] = deque(maxlen=self.max_history_len)
             
-            # Catat titik sebelumnya sebelum menambah yang baru
-            prev_point = self.track_trajectories[track_id][-1] if len(self.track_trajectories[track_id]) > 0 else (cx, cy)
-            self.track_trajectories[track_id].append((cx, cy))
+            prev_foot = self.track_trajectories[track_id][-1] if len(self.track_trajectories[track_id]) > 0 else (foot_x, foot_y)
+            prev_centroid = self.centroid_trajectories[track_id][-1] if len(self.centroid_trajectories[track_id]) > 0 else (cx, cy)
+
+            self.track_trajectories[track_id].append((foot_x, foot_y))
+            self.centroid_trajectories[track_id].append((cx, cy))
             self.track_lost_count[track_id] = 0
 
             active_tracks.append({
                 "track_id": track_id,
                 "bbox": (x1, y1, x2, y2),
                 "centroid": (cx, cy),
-                "prev_centroid": prev_point,
+                "foot_point": (foot_x, foot_y),
+                "prev_centroid": prev_centroid,
+                "prev_foot_point": prev_foot,
                 "confidence": conf,
-                "trajectory": list(self.track_trajectories[track_id])
+                "trajectory": list(self.centroid_trajectories[track_id]),
+                "foot_trajectory": list(self.track_trajectories[track_id])
             })
 
         self._increment_lost_tracks(current_active_ids)
@@ -99,5 +110,7 @@ class ByteTrackTracker:
 
         for tid in to_delete:
             del self.track_trajectories[tid]
+            if tid in self.centroid_trajectories:
+                del self.centroid_trajectories[tid]
             if tid in self.track_lost_count:
                 del self.track_lost_count[tid]

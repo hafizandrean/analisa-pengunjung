@@ -100,6 +100,18 @@ if ($method === 'POST') {
         exit;
     }
 
+    // Dukungan update snapshot_path dari Background R2 Uploader
+    if (($data['action'] ?? '') === 'update_snapshot') {
+        $evtId = $data['event_id'] ?? '';
+        $snap = $data['snapshot_path'] ?? '';
+        if ($evtId && $snap) {
+            $upd = $pdo->prepare("UPDATE counting_events SET snapshot_path = ? WHERE id = ?");
+            $upd->execute([$snap, $evtId]);
+            echo json_encode(['success' => true, 'event_id' => $evtId, 'snapshot_path' => $snap]);
+            exit;
+        }
+    }
+
     $cameraId = $data['camera_id'] ?? 'cam-1';
     $direction = strtoupper($data['direction'] ?? 'IN');
     $countVal = (int)($data['count_value'] ?? 1);
@@ -118,6 +130,7 @@ if ($method === 'POST') {
         $timestamp = date('Y-m-d H:i:s');
     }
     $sourceMode = $data['source_mode'] ?? 'LIVE';
+    $snapshotPath = $data['snapshot_path'] ?? null;
     $metadata = isset($data['metadata_json']) ? (is_string($data['metadata_json']) ? $data['metadata_json'] : json_encode($data['metadata_json'])) : null;
 
     if (!in_array($direction, ['IN', 'OUT'])) {
@@ -126,10 +139,10 @@ if ($method === 'POST') {
         exit;
     }
 
-    $eventId = 'evt-' . uniqid();
+    $eventId = $data['event_id'] ?? ('evt-' . uniqid());
 
-    $sql = "INSERT INTO counting_events (id, camera_id, session_id, event_timestamp, direction, count_value, track_id, confidence, source_mode, metadata_json) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+    $sql = "INSERT INTO counting_events (id, camera_id, session_id, event_timestamp, direction, count_value, track_id, confidence, source_mode, metadata_json, snapshot_path) 
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
     $stmt = $pdo->prepare($sql);
     $stmt->execute([
         $eventId,
@@ -141,7 +154,8 @@ if ($method === 'POST') {
         $trackId,
         $confidence,
         $sourceMode,
-        $metadata
+        $metadata,
+        $snapshotPath
     ]);
 
     http_response_code(201);

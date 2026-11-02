@@ -342,6 +342,72 @@ include __DIR__ . '/includes/header.php';
             </div>
         </div>
 
+        <!-- KARTU 5: PENYIMPANAN BUKTI FOTO TERSENTRALISASI CLOUDFLARE R2 -->
+        <div class="bg-white rounded-3xl p-6 border border-slate-200/80 shadow-sm space-y-5 lg:col-span-2">
+            <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+                <div class="flex items-center gap-3">
+                    <div class="w-10 h-10 rounded-2xl bg-orange-500/10 text-orange-600 flex items-center justify-center">
+                        <i data-lucide="cloud" class="w-5 h-5"></i>
+                    </div>
+                    <div>
+                        <h3 class="text-sm font-bold text-slate-900"><?= __('card_evidence_title') ?></h3>
+                        <p class="text-[11px] text-slate-500">Semua foto bukti tamu tersentralisir di Cloudflare R2. Laptop kasir 100% bebas beban penyimpanan.</p>
+                    </div>
+                </div>
+
+                <div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-800 text-xs font-semibold">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Tersentralisir ke Cloudflare R2</span>
+                </div>
+            </div>
+
+            <!-- Mode Tunggal Tersentralisasi -->
+            <input type="hidden" name="evidence_storage_mode" value="hybrid_r2">
+
+            <div class="p-4 bg-slate-50 rounded-2xl border border-slate-200/80 space-y-4">
+                <div class="flex items-center justify-between">
+                    <div class="text-xs font-bold text-slate-800 flex items-center gap-2">
+                        <i data-lucide="shield-check" class="w-4 h-4 text-orange-500"></i>
+                        <span>Kredensial Cloudflare R2 (countiva)</span>
+                    </div>
+                    <span class="text-[11px] font-semibold text-emerald-600 bg-emerald-100/60 px-2 py-0.5 rounded-md border border-emerald-200">
+                        Status: Siap & Aktif
+                    </span>
+                </div>
+
+                <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 mb-1"><?= __('field_r2_bucket') ?></label>
+                        <input type="text" name="r2_bucket" value="<?= htmlspecialchars($settings['r2_bucket'] ?? 'countiva') ?>" 
+                               class="w-full text-xs font-mono font-semibold bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 mb-1"><?= __('field_r2_account_id') ?></label>
+                        <input type="text" name="r2_account_id" value="<?= htmlspecialchars($settings['r2_account_id'] ?? '21d6193577f6f49e1c8d495034b899bc') ?>" 
+                               class="w-full text-xs font-mono font-semibold bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 mb-1"><?= __('field_r2_access_key') ?></label>
+                        <input type="text" name="r2_access_key_id" placeholder="Access Key ID" value="<?= htmlspecialchars($settings['r2_access_key_id'] ?? '') ?>" 
+                               class="w-full text-xs font-mono font-semibold bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500">
+                    </div>
+
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-700 mb-1"><?= __('field_r2_secret_key') ?></label>
+                        <input type="password" name="r2_secret_access_key" placeholder="••••••••••••••••••••••••" value="<?= htmlspecialchars($settings['r2_secret_access_key'] ?? '') ?>" 
+                               class="w-full text-xs font-mono font-semibold bg-white border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500">
+                    </div>
+                </div>
+
+                <div class="text-[11px] text-slate-500 bg-white p-3 rounded-xl border border-slate-200/60 flex items-center gap-2">
+                    <i data-lucide="info" class="w-4 h-4 text-orange-500 shrink-0"></i>
+                    <span>Semua foto penyeberangan pintu tamu otomatis diunggah langsung ke bucket Cloudflare <strong>countiva</strong>. Laptop kasir tidak dibebani penyimpanan gambar.</span>
+                </div>
+            </div>
+        </div>
+
     </div>
 
     <!-- Tombol Simpan Pengaturan -->
@@ -358,6 +424,16 @@ include __DIR__ . '/includes/header.php';
 </form>
 
 <script>
+function toggleR2Fields(val) {
+    const section = document.getElementById('r2ConfigSection');
+    if (!section) return;
+    if (val === 'disabled') {
+        section.classList.add('hidden');
+    } else {
+        section.classList.remove('hidden');
+    }
+}
+
 // Pratinjau jam jika zona waktu diubah (jam header tetap stabil dan hanya berganti setelah klik Simpan)
 const savedTimezone = '<?= htmlspecialchars($settings['timezone'] ?? 'Asia/Jakarta') ?>';
 const tzSelect = document.getElementById('inp_timezone');

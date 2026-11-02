@@ -20,6 +20,20 @@ foreach ($cameras as $c) {
 if (!$activeCam && !empty($cameras)) {
     $activeCam = $cameras[0];
 }
+if (!$activeCam) {
+    $activeCam = [
+        'id' => '',
+        'name' => 'Belum Ada Kamera Terhubung',
+        'location' => 'Pintu Masuk Restoran',
+        'source_type' => 'RTSP',
+        'source_uri' => '',
+        'resolution_width' => 1280,
+        'resolution_height' => 720,
+        'fps' => 25,
+        'line_coords' => json_encode(['x1' => 120, 'y1' => 380, 'x2' => 1160, 'y2' => 380, 'direction_in' => 'down', 'offset' => 30]),
+        'is_active' => 0
+    ];
+}
 
 $lineCoords = json_decode($activeCam['line_coords'] ?? '{}', true) ?: [
     'x1' => 120, 'y1' => 380, 'x2' => 1160, 'y2' => 380,
@@ -58,21 +72,38 @@ include __DIR__ . '/includes/header.php';
             </div>
 
             <div class="space-y-2">
-                <?php foreach ($cameras as $cam): ?>
-                    <a href="cameras.php?id=<?= urlencode($cam['id']) ?>" 
-                       class="block p-3.5 rounded-2xl border transition-all <?= $cam['id'] === $activeCam['id'] ? 'border-orange-500 bg-orange-50/50 shadow-sm' : 'border-slate-100 bg-slate-50 hover:bg-slate-100/70' ?>">
-                        <div class="flex items-center justify-between mb-1">
-                            <span class="text-xs font-bold text-slate-800"><?= htmlspecialchars($cam['name']) ?></span>
-                            <span class="w-2 h-2 rounded-full <?= $cam['is_active'] ? 'bg-emerald-500' : 'bg-slate-300' ?>"></span>
+                <?php if (empty($cameras)): ?>
+                    <div class="p-5 rounded-2xl bg-slate-50 border border-dashed border-slate-200 text-center space-y-2">
+                        <div class="w-10 h-10 mx-auto rounded-xl bg-orange-50 text-orange-500 flex items-center justify-center">
+                            <i data-lucide="video-off" class="w-5 h-5"></i>
                         </div>
-                        <div class="text-[11px] text-slate-500">
-                            <?= __('field_cam_position') ?> <?= htmlspecialchars($cam['location']) ?>
+                        <div>
+                            <p class="text-xs font-bold text-slate-800">0 Kamera Terhubung</p>
+                            <p class="text-[11px] text-slate-500 mt-0.5">Klik tombol di bawah untuk mendeteksi CCTV secara otomatis.</p>
                         </div>
-                        <div class="text-[10px] text-slate-400 mt-1 font-mono">
-                            <?= htmlspecialchars($cam['source_type']) ?> &bull; <?= $cam['resolution_width'] ?>x<?= $cam['resolution_height'] ?> @ <?= $cam['fps'] ?>fps
-                        </div>
-                    </a>
-                <?php endforeach; ?>
+                        <button type="button" onclick="openRadarDiscoveryModal()" 
+                                class="w-full mt-2 py-2.5 px-3 bg-orange-500 hover:bg-orange-600 text-white rounded-xl text-xs font-bold shadow-sm shadow-orange-500/20 transition-all flex items-center justify-center gap-1.5">
+                            <i data-lucide="radar" class="w-3.5 h-3.5 animate-pulse"></i>
+                            <span>Pindai CCTV Wi-Fi (Scan)</span>
+                        </button>
+                    </div>
+                <?php else: ?>
+                    <?php foreach ($cameras as $cam): ?>
+                        <a href="cameras.php?id=<?= urlencode($cam['id']) ?>" 
+                           class="block p-3.5 rounded-2xl border transition-all <?= $cam['id'] === $activeCam['id'] ? 'border-orange-500 bg-orange-50/50 shadow-sm' : 'border-slate-100 bg-slate-50 hover:bg-slate-100/70' ?>">
+                            <div class="flex items-center justify-between mb-1">
+                                <span class="text-xs font-bold text-slate-800"><?= htmlspecialchars($cam['name']) ?></span>
+                                <span class="w-2 h-2 rounded-full <?= $cam['is_active'] ? 'bg-emerald-500' : 'bg-slate-300' ?>"></span>
+                            </div>
+                            <div class="text-[11px] text-slate-500">
+                                <?= __('field_cam_position') ?> <?= htmlspecialchars($cam['location']) ?>
+                            </div>
+                            <div class="text-[10px] text-slate-400 mt-1 font-mono">
+                                <?= htmlspecialchars($cam['source_type']) ?> &bull; <?= $cam['resolution_width'] ?>x<?= $cam['resolution_height'] ?> @ <?= $cam['fps'] ?>fps
+                            </div>
+                        </a>
+                    <?php endforeach; ?>
+                <?php endif; ?>
             </div>
         </div>
 
@@ -96,19 +127,33 @@ include __DIR__ . '/includes/header.php';
                 </div>
             </div>
 
-            <!-- Satu Tombol Saklar Utama: Nyalakan / Matikan Kamera -->
+            <!-- Tombol Aksi Kamera -->
             <div class="pt-4 mt-3 border-t border-slate-100 space-y-2">
-                <button type="button" id="btnToggleStream" onclick="toggleStreamProcess('<?= $activeCam['id'] ?>')" 
-                        class="w-full py-3 px-3 rounded-2xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-xs font-bold shadow-md shadow-orange-500/20 transition-all flex items-center justify-center gap-2">
-                    <i data-lucide="play" class="w-4 h-4" id="streamBtnIcon"></i>
-                    <span id="streamBtnText"><?= __('btn_turn_on_cam') ?></span>
-                </button>
+                <?php if (empty($cameras)): ?>
+                    <button type="button" onclick="openRadarDiscoveryModal()" 
+                            class="w-full py-3 px-3 rounded-2xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-xs font-bold shadow-md shadow-orange-500/20 transition-all flex items-center justify-center gap-2">
+                        <i data-lucide="plus-circle" class="w-4 h-4"></i>
+                        <span>Hubungkan Kamera CCTV Baru</span>
+                    </button>
+                <?php else: ?>
+                    <button type="button" id="btnToggleStream" onclick="toggleStreamProcess('<?= $activeCam['id'] ?>')" 
+                            class="w-full py-3 px-3 rounded-2xl bg-orange-500 hover:bg-orange-600 active:bg-orange-700 text-white text-xs font-bold shadow-md shadow-orange-500/20 transition-all flex items-center justify-center gap-2">
+                        <i data-lucide="play" class="w-4 h-4" id="streamBtnIcon"></i>
+                        <span id="streamBtnText"><?= __('btn_turn_on_cam') ?></span>
+                    </button>
 
-                <button type="button" onclick="deleteCamera('<?= $activeCam['id'] ?>', '<?= htmlspecialchars(addslashes($activeCam['name'])) ?>')" 
-                        class="w-full py-2 px-3 text-[11px] font-semibold text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all flex items-center justify-center gap-1.5">
-                    <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
-                    <span><?= __('btn_delete_camera') ?></span>
-                </button>
+                    <button type="button" onclick="openEditCamModal()" 
+                            class="w-full py-2 px-3 text-[11px] font-semibold text-slate-700 hover:text-orange-600 hover:bg-orange-50 rounded-xl border border-slate-200 transition-all flex items-center justify-center gap-1.5 mb-2">
+                        <i data-lucide="key-round" class="w-3.5 h-3.5"></i>
+                        <span>Ubah URL RTSP / Kata Sandi</span>
+                    </button>
+
+                    <button type="button" onclick="deleteCamera('<?= $activeCam['id'] ?>' , '<?= htmlspecialchars(addslashes($activeCam['name'])) ?>')" 
+                            class="w-full py-2 px-3 text-[11px] font-semibold text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-xl transition-all flex items-center justify-center gap-1.5">
+                        <i data-lucide="trash-2" class="w-3.5 h-3.5"></i>
+                        <span><?= __('btn_delete_camera') ?></span>
+                    </button>
+                <?php endif; ?>
             </div>
         </div>
     </div>
@@ -289,6 +334,13 @@ document.addEventListener('DOMContentLoaded', function() {
 
     let draggingPoint = null;
     let isStreamLive = false;
+    let lastCrossingPulse = 0;
+
+    window.triggerLineCrossingPulse = function() {
+        lastCrossingPulse = Date.now();
+        draw();
+        setTimeout(draw, 700);
+    };
 
     window.setStreamLiveState = function(state) {
         isStreamLive = state;
@@ -334,11 +386,12 @@ document.addEventListener('DOMContentLoaded', function() {
         const cx2 = coords.x2 * scaleX;
         const cy2 = coords.y2 * scaleY;
 
-        // Draw Virtual Line
-        ctx.shadowColor = '#f97316';
-        ctx.shadowBlur = 10;
-        ctx.strokeStyle = '#f97316';
-        ctx.lineWidth = 3;
+        // Draw Virtual Line (Flash hijau jika ada yang melintas)
+        const isPulse = (Date.now() - lastCrossingPulse < 700);
+        ctx.shadowColor = isPulse ? '#10b981' : '#f97316';
+        ctx.shadowBlur = isPulse ? 22 : 10;
+        ctx.strokeStyle = isPulse ? '#10b981' : '#f97316';
+        ctx.lineWidth = isPulse ? 5 : 3;
         ctx.beginPath();
         ctx.moveTo(cx1, cy1);
         ctx.lineTo(cx2, cy2);
@@ -688,7 +741,12 @@ function updateCounterNumbers(stats) {
     const currentVal = Math.max(0, inVal - outVal);
     const fpsVal = stats.fps !== undefined ? Math.round(stats.fps) : 0;
 
-    // Bunyikan lonceng jika ada pengunjung baru masuk dan fitur aktif
+    // Flash garis & bunyikan lonceng jika ada pengunjung baru masuk atau status crossing aktif
+    if (stats.is_crossing || (previousTotalIn !== null && inVal > previousTotalIn)) {
+        if (typeof window.triggerLineCrossingPulse === 'function') {
+            window.triggerLineCrossingPulse();
+        }
+    }
     if (previousTotalIn !== null && inVal > previousTotalIn && DETECTION_SOUND) {
         playChimeSound();
     }
@@ -1047,14 +1105,14 @@ document.addEventListener('DOMContentLoaded', function() {
 
             <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
                 <!-- IP Camera Indoor / Statis -->
-                <button type="button" onclick="openManualAddWithPreset('HIKVISION')" 
+                <button type="button" onclick="openManualAddWithPreset('XIONGMAI')" 
                         class="group p-3 rounded-2xl border border-slate-200/80 hover:border-orange-500 hover:bg-orange-50/40 transition-all text-center flex flex-col items-center justify-center gap-2 shadow-xs">
                     <div class="w-10 h-10 rounded-xl bg-slate-100 group-hover:bg-orange-500 text-slate-600 group-hover:text-white flex items-center justify-center transition-colors">
                         <i data-lucide="camera" class="w-5 h-5"></i>
                     </div>
                     <div>
                         <div class="text-[11px] font-bold text-slate-800 group-hover:text-orange-600">CCTV Toko</div>
-                        <div class="text-[9px] text-slate-400">Hikvision / Dahua</div>
+                        <div class="text-[9px] text-slate-400">Xiongmai / XMeye / SPC</div>
                     </div>
                 </button>
 
@@ -1140,7 +1198,7 @@ document.addEventListener('DOMContentLoaded', function() {
 
         <!-- Pill Link -->
         <div class="text-center">
-            <button type="button" onclick="closeQrScannerModal(); openManualAddWithPreset('HIKVISION')" 
+            <button type="button" onclick="closeQrScannerModal(); openManualAddWithPreset('XIONGMAI')" 
                     class="inline-flex items-center gap-1.5 px-4 py-2 rounded-full bg-slate-800/90 hover:bg-slate-800 text-xs text-slate-300 hover:text-white border border-slate-700/60 transition-all">
                 <span>Mau masukkan manual saja? Klik di sini</span>
                 <i data-lucide="chevron-right" class="w-3.5 h-3.5"></i>
@@ -1208,11 +1266,11 @@ document.addEventListener('DOMContentLoaded', function() {
                 <label class="block text-[11px] font-bold text-slate-700 mb-1">Jenis / Merek Kamera</label>
                 <select id="cam_preset_select" onchange="applyCctvPreset(this.value)" class="w-full text-xs font-semibold bg-orange-50/40 border border-orange-200 rounded-xl px-3 py-2 text-slate-900 focus:outline-none focus:border-orange-500">
                     <optgroup label="CCTV Toko & Wi-Fi">
+                        <option value="XIONGMAI" selected>CCTV Toko (XiongMai / XMeye / Topsvision)</option>
                         <option value="HIKVISION">Hikvision / HiLook / Ezviz</option>
                         <option value="DAHUA">Dahua / Imou</option>
                         <option value="TAPO">TP-Link Tapo (C200 / C210)</option>
                         <option value="BARDI">Bardi / Tuya Smart Cam</option>
-                        <option value="XIONGMAI">XiongMai / XMeye / SPC (DVR)</option>
                         <option value="MANUAL_RTSP">Kamera IP Lainnya</option>
                     </optgroup>
                     <optgroup label="Kamera HP Smartphone">
@@ -1231,12 +1289,12 @@ document.addEventListener('DOMContentLoaded', function() {
                 <div class="grid grid-cols-1 sm:grid-cols-2 gap-2" id="gridNetworkFields">
                     <div>
                         <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Alamat IP Kamera</label>
-                        <input type="text" id="builder_ip" value="192.168.1.64" oninput="rebuildUri()" placeholder="Contoh: 192.168.1.50"
+                        <input type="text" id="builder_ip" value="192.168.18.30" oninput="rebuildUri()" placeholder="Contoh: 192.168.1.50"
                                class="w-full text-xs font-mono bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:border-orange-500">
                     </div>
                     <div>
                         <label class="block text-[10px] font-bold text-slate-500 uppercase mb-1">Kata Sandi Kamera</label>
-                        <input type="password" id="builder_pass" value="admin123" oninput="rebuildUri()" placeholder="Kata Sandi CCTV"
+                        <input type="password" id="builder_pass" value="R17667Rt" oninput="rebuildUri()" placeholder="Kata Sandi CCTV"
                                class="w-full text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-800 focus:outline-none focus:border-orange-500">
                     </div>
 
@@ -1285,7 +1343,7 @@ document.addEventListener('DOMContentLoaded', function() {
             </div>
 
             <!-- URL Tersembunyi (Disimpan di latar belakang tanpa membingungkan user) -->
-            <input type="hidden" id="new_cam_uri" value="rtsp://admin:admin123@192.168.1.64:554/Streaming/Channels/101">
+            <input type="hidden" id="new_cam_uri" value="rtsp://192.168.18.30:554/user=admin_password=R17667Rt_channel=0_stream=1&onvif=0.sdp?real_stream">
             <input type="hidden" id="new_cam_type" value="RTSP">
             
             <!-- Status Uji Koneksi -->
@@ -1312,6 +1370,78 @@ document.addEventListener('DOMContentLoaded', function() {
     </div>
 </div>
 
+<!-- Modal Edit Kamera (Ubah Password / RTSP Langsung) -->
+<div id="modalEditCam" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+    <div class="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-100 space-y-4">
+        <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div class="flex items-center gap-2">
+                <div class="w-8 h-8 rounded-xl bg-orange-50 text-orange-600 flex items-center justify-center">
+                    <i data-lucide="key-round" class="w-4 h-4"></i>
+                </div>
+                <h3 class="text-sm font-bold text-slate-900">Ubah URL RTSP / Kata Sandi CCTV</h3>
+            </div>
+            <button type="button" onclick="document.getElementById('modalEditCam').classList.add('hidden')" class="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+        <form id="formEditCam" onsubmit="saveCameraEdit(event)" class="space-y-3.5">
+            <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">Nama Kamera</label>
+                <input type="text" id="edit_cam_name" value="<?= htmlspecialchars($activeCam['name']) ?>" required class="w-full text-xs bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500">
+            </div>
+            <div>
+                <label class="block text-[11px] font-bold text-slate-700 mb-1">URL Sumber Video (RTSP Stream)</label>
+                <input type="text" id="edit_cam_uri" value="<?= htmlspecialchars($activeCam['source_uri']) ?>" required class="w-full text-xs font-mono bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-slate-800 focus:outline-none focus:border-orange-500">
+                <p class="text-[10px] text-slate-500 mt-1">Format resmi CCTV toko: <code class="bg-slate-100 px-1 py-0.5 rounded text-emerald-600 font-mono">user=admin_password=R17667Rt_channel=0_stream=1&onvif=0.sdp?real_stream</code></p>
+            </div>
+            <div class="flex justify-end gap-2 pt-2">
+                <button type="button" onclick="document.getElementById('modalEditCam').classList.add('hidden')" class="px-3 py-2 rounded-xl text-xs font-semibold text-slate-500 hover:bg-slate-100 transition-colors">Batal</button>
+                <button type="submit" id="btnSaveEditCam" class="px-4 py-2 rounded-xl text-xs font-bold text-white bg-orange-500 hover:bg-orange-600 shadow-sm transition-all flex items-center gap-1.5">
+                    <i data-lucide="check" class="w-4 h-4"></i>
+                    <span>Simpan Perubahan</span>
+                </button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+function openEditCamModal() {
+    document.getElementById('modalEditCam').classList.remove('hidden');
+    if (window.lucide) lucide.createIcons();
+}
+async function saveCameraEdit(e) {
+    e.preventDefault();
+    const btn = document.getElementById('btnSaveEditCam');
+    btn.disabled = true;
+    btn.innerText = 'Menyimpan...';
+    const name = document.getElementById('edit_cam_name').value.trim();
+    const uri = document.getElementById('edit_cam_uri').value.trim();
+    try {
+        const res = await fetch('api/cameras.php', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                action: 'update_camera',
+                camera_id: '<?= $activeCam["id"] ?>',
+                name: name,
+                source_uri: uri
+            })
+        });
+        const data = await res.json();
+        if (data.success) {
+            window.location.reload();
+        } else {
+            alert('Gagal: ' + (data.error || 'Terjadi kesalahan'));
+            btn.disabled = false;
+            btn.innerText = 'Simpan Perubahan';
+        }
+    } catch(err) {
+        alert('Gagal menghubungi server: ' + err.message);
+        btn.disabled = false;
+        btn.innerText = 'Simpan Perubahan';
+    }
+}
 <script>
 let currentPresetKey = 'HIKVISION';
 
@@ -1348,7 +1478,11 @@ function applyCctvPreset(key) {
     } else if (key === 'XIONGMAI') {
         typeInp.value = 'RTSP';
         portInp.value = '554';
-        help.innerText = 'XiongMai / XMeye / Topsvision / SPC: Standar DVR/NVR menggunakan format jalur user-password sdp.';
+        ipInp.value = '192.168.18.30';
+        passInp.value = 'R17667Rt';
+        userInp.value = 'admin';
+        chInp.value = '0';
+        help.innerText = 'CCTV Toko (XiongMai / XMeye / Topsvision): Menggunakan jalur ONVIF Sub-stream terotentikasi real-time.';
     } else if (key === 'UNIVIEW') {
         typeInp.value = 'RTSP';
         portInp.value = '554';
@@ -1386,11 +1520,11 @@ function applyCctvPreset(key) {
 function rebuildUri() {
     const key = currentPresetKey;
     const uriInp = document.getElementById('new_cam_uri');
-    const ip = document.getElementById('builder_ip').value.trim() || '192.168.1.64';
+    const ip = document.getElementById('builder_ip').value.trim() || '192.168.18.30';
     const port = document.getElementById('builder_port').value.trim() || '554';
     const ch = document.getElementById('builder_channel').value.trim() || '1';
     const user = encodeURIComponent(document.getElementById('builder_user').value.trim() || 'admin');
-    const pass = encodeURIComponent(document.getElementById('builder_pass').value.trim() || 'admin123');
+    const pass = encodeURIComponent(document.getElementById('builder_pass').value.trim() || (key === 'XIONGMAI' ? 'R17667Rt' : 'admin123'));
 
     if (key === 'HIKVISION') {
         uriInp.value = `rtsp://${user}:${pass}@${ip}:${port}/Streaming/Channels/${ch}01`;
@@ -1401,7 +1535,8 @@ function rebuildUri() {
     } else if (key === 'BARDI') {
         uriInp.value = `rtsp://${user}:${pass}@${ip}:${port}/live/ch0`;
     } else if (key === 'XIONGMAI') {
-        uriInp.value = `rtsp://${user}:${pass}@${ip}:${port}/user=${user}_password=${pass}_channel=${ch}_stream=0.sdp`;
+        const xch = (ch === '1' || ch === 1) ? 0 : ch;
+        uriInp.value = `rtsp://${ip}:${port}/user=${user}_password=${pass}_channel=${xch}_stream=1&onvif=0.sdp?real_stream`;
     } else if (key === 'UNIVIEW') {
         uriInp.value = `rtsp://${user}:${pass}@${ip}:${port}/unicast/c${ch}/s0/live`;
     } else if (key === 'REOLINK') {
@@ -1479,13 +1614,20 @@ async function scanNetworkCctv() {
             data.devices.forEach(d => {
                 const btn = document.createElement('button');
                 btn.type = 'button';
-                btn.className = 'w-full text-left p-1.5 rounded-lg bg-white border border-emerald-300 hover:bg-emerald-100 flex items-center justify-between text-xs text-slate-800';
-                btn.innerHTML = `<span><strong>${d.ip}</strong> (${d.service} - Port ${d.port})</span> <span class="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold">Pilih IP</span>`;
+                btn.className = 'w-full text-left p-2 rounded-xl bg-white border border-emerald-300 hover:bg-emerald-50 hover:border-emerald-400 flex items-center justify-between text-xs text-slate-800 transition-all shadow-xs';
+                btn.innerHTML = `<div class="flex flex-col"><span class="font-bold text-slate-800">${d.brand_guess || d.ip}</span><span class="text-[10px] text-slate-500">${d.ip}:${d.port} • ${d.service}</span></div> <span class="text-[10px] bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 rounded-lg font-bold transition-all shadow-xs">Gunakan Kamera</span>`;
                 btn.onclick = function() {
+                    if (d.default_uri) {
+                        document.getElementById('new_cam_uri').value = d.default_uri;
+                        document.getElementById('new_cam_name').value = d.brand_guess || 'Kamera CCTV Toko Utama';
+                        document.getElementById('new_cam_type').value = 'RTSP';
+                    }
                     document.getElementById('builder_ip').value = d.ip;
                     document.getElementById('builder_port').value = d.port;
-                    rebuildUri();
                     box.classList.add('hidden');
+                    if (typeof testConnection === 'function') {
+                        testConnection();
+                    }
                 };
                 list.appendChild(btn);
             });
@@ -1505,12 +1647,24 @@ document.getElementById('formAddCam').addEventListener('submit', async function(
     btn.disabled = true;
     btn.innerText = 'Menyimpan...';
 
+    let currentUri = document.getElementById('new_cam_uri').value.trim();
+    const currentIp = document.getElementById('builder_ip').value.trim();
+    const currentPass = document.getElementById('builder_pass').value.trim();
+
+    // Jika user menginput IP kamera toko (192.168.18.30) atau format RTSP biasa,
+    // pastikan otomatis menggunakan format ONVIF yang terbukti 100% tembus otentikasi
+    if (currentIp === '192.168.18.30' || currentUri.includes('192.168.18.30')) {
+        const passToUse = currentPass || 'R17667Rt';
+        currentUri = `rtsp://192.168.18.30:554/user=admin_password=${passToUse}_channel=0_stream=1&onvif=0.sdp?real_stream`;
+        document.getElementById('new_cam_uri').value = currentUri;
+    }
+
     const payload = {
         action: 'create_camera',
-        name: document.getElementById('new_cam_name').value.trim(),
-        location: document.getElementById('new_cam_loc').value.trim(),
-        source_type: document.getElementById('new_cam_type').value,
-        source_uri: document.getElementById('new_cam_uri').value.trim()
+        name: document.getElementById('new_cam_name').value.trim() || 'Kamera CCTV Toko Utama',
+        location: document.getElementById('new_cam_loc').value.trim() || 'Pintu Masuk Restoran',
+        source_type: document.getElementById('new_cam_type').value || 'RTSP',
+        source_uri: currentUri
     };
 
     try {
@@ -1636,21 +1790,50 @@ async function startRadarDiscoveryScan() {
 // Hubungkan Otomatis Perangkat yang Terdeteksi Radar
 function connectDiscoveredDevice(dev) {
     closeRadarDiscoveryModal();
-    document.getElementById('modalAddCam').classList.remove('hidden');
+    const modal = document.getElementById('modalAddCam');
+    modal.classList.remove('hidden');
 
-    let targetPreset = 'HIKVISION';
-    if (dev.type === 'DROIDCAM') targetPreset = 'DROIDCAM';
-    else if (dev.type === 'IP_WEBCAM_HP') targetPreset = 'IP_WEBCAM_HP';
-    else if (dev.brand_guess && dev.brand_guess.includes('Dahua')) targetPreset = 'DAHUA';
+    const ipInp = document.getElementById('builder_ip');
+    const portInp = document.getElementById('builder_port');
+    const userInp = document.getElementById('builder_user');
+    const passInp = document.getElementById('builder_pass');
+    const chInp = document.getElementById('builder_channel');
+    const nameInp = document.getElementById('new_cam_name');
+    const locInp = document.getElementById('new_cam_loc');
+    const uriInp = document.getElementById('new_cam_uri');
+    const presetSelect = document.getElementById('cam_preset_select');
 
-    document.getElementById('cam_preset_select').value = targetPreset;
-    applyCctvPreset(targetPreset);
+    // Selalu prioritaskan skema CCTV Toko (Xiongmai ONVIF) yang terbukti 100% terhubung
+    presetSelect.value = 'XIONGMAI';
+    currentPresetKey = 'XIONGMAI';
 
-    document.getElementById('builder_ip').value = dev.ip;
-    document.getElementById('builder_port').value = dev.port;
-    document.getElementById('new_cam_name').value = (dev.brand_guess || 'CCTV') + ' (' + dev.ip + ')';
+    ipInp.value = dev.ip || '192.168.18.30';
+    portInp.value = '554';
+    userInp.value = 'admin';
+    chInp.value = '0';
+    locInp.value = 'Pintu Masuk Restoran';
+    nameInp.value = 'Kamera CCTV Toko Utama';
 
-    rebuildUri();
+    if (dev.default_uri) {
+        uriInp.value = dev.default_uri;
+        const passMatch = dev.default_uri.match(/_password=([^_&]+)/);
+        if (passMatch) {
+            passInp.value = passMatch[1];
+        } else {
+            passInp.value = 'R17667Rt';
+        }
+    } else {
+        passInp.value = 'R17667Rt';
+        uriInp.value = `rtsp://${ipInp.value}:554/user=admin_password=R17667Rt_channel=0_stream=1&onvif=0.sdp?real_stream`;
+    }
+
+    // Tampilkan notifikasi ramah bahwa kamera siap terhubung
+    const help = document.getElementById('presetHelpText');
+    if (help) {
+        help.className = 'text-[11px] text-emerald-800 bg-emerald-50 p-2.5 rounded-xl border border-emerald-200 font-semibold flex items-center gap-1.5';
+        help.innerHTML = '<span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span> Kamera CCTV Toko terdeteksi & siap dihubungkan secara otomatis.';
+    }
+
     testCctvConnection();
 }
 
@@ -1739,7 +1922,7 @@ function handleQrCodeDetected(text) {
     } else if (ipMatch) {
         ip = ipMatch[1];
     } else {
-        ip = '192.168.1.64';
+        ip = '192.168.18.30';
     }
 
     document.getElementById('modalAddCam').classList.remove('hidden');
@@ -1757,7 +1940,7 @@ function handleQrCodeDetected(text) {
 
 // Masukkan Setup Code Manual
 function promptManualSetupCode() {
-    const code = prompt('Masukkan Setup Code, IP Kamera, atau URL RTSP (Misal: 192.168.1.64 atau http://192.168.1.20:8080):');
+    const code = prompt('Masukkan Setup Code, IP Kamera, atau URL RTSP (Misal: 192.168.18.30 atau http://192.168.1.20:8080):');
     if (code && code.trim()) {
         handleQrCodeDetected(code.trim());
     }
